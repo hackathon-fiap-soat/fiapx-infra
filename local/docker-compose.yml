@@ -1,0 +1,78 @@
+# Ambiente local do FIAP X (Etapa 2). Substitui os serviços da AWS para desenvolvimento e testes.
+#   docker compose up -d --wait     sobe tudo e espera os healthchecks (inclui os scripts de init)
+#   ./scripts/verificar.sh          lista e confere os recursos criados
+#   docker compose down -v          derruba e apaga os dados do MySQL
+# Valores padrão abaixo são só para uso local; para trocar, copie .env.example para .env.
+name: fiapx
+
+x-senhas-db: &senhas-db
+  FIAPX_AUTH_DB_PASSWORD: ${FIAPX_AUTH_DB_PASSWORD:-fiapx_auth_local}
+  FIAPX_VIDEO_DB_PASSWORD: ${FIAPX_VIDEO_DB_PASSWORD:-fiapx_video_local}
+
+services:
+  mysql:
+    # Aurora MySQL 3 é compatível com o MySQL 8.0.
+    image: mysql:8.0
+    environment:
+      <<: *senhas-db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_local}
+      TZ: UTC
+    command: ["--default-time-zone=+00:00", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../sql:/fiapx-sql:ro
+      - ./init/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Usa o usuário da aplicação: só fica saudável depois que o script de init criou os usuários.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ufiapx_auth -p\"$$FIAPX_AUTH_DB_PASSWORD\" --silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+
+  localstack:
+    # 4.14.0 é a última versão Community que roda sem LOCALSTACK_AUTH_TOKEN (as versões 2026.x exigem conta).
+    image: localstack/localstack:4.14.0
+    environment:
+      <<: *senhas-db
+      SERVICES: s3,sqs,ses,ssm,secretsmanager,dynamodb,sts,iam,lambda,logs,apigateway
+      AWS_DEFAULT_REGION: us-east-1
+      FIAPX_ENV: local
+      FIAPX_WEB_URL: ${FIAPX_WEB_URL:-http://localhost:5173}
+      FIAPX_SES_FROM: nao-responda@hackfiapf5.click
+      # Endereço do MySQL gravado nos segredos do banco. "localhost" serve para quem roda na máquina;
+      # um serviço dentro do compose sobrescreve o host para "mysql" pela variável DB_HOST.
+      FIAPX_DB_HOST: ${FIAPX_DB_HOST:-localhost}
+      FIAPX_DB_PORT: ${MYSQL_PORT:-3306}
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    volumes:
+      - ./init/localstack:/etc/localstack/init/ready.d:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      # Saudável só quando o script de init terminou sem erro (ele cria este arquivo na última linha).
+      test: ["CMD-SHELL", "test -f /tmp/fiapx-init-ok"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  mailpit:
+    # Caixa de entrada local: o fiapx-notification envia por SMTP (EMAIL_DRIVER=smtp).
+    image: axllent/mailpit:v1.33.1
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mysql-data:
