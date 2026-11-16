@@ -1,0 +1,47 @@
+name: ambiente-local
+
+# Sobe o ambiente local (docker compose) e roda o script de verificação, para garantir que todo
+# integrante consegue subir MySQL + LocalStack + Mailpit com os recursos esperados.
+on:
+  pull_request:
+    paths: ["local/**", "sql/**", ".github/workflows/local.yml"]
+  push:
+    branches: [main]
+    paths: ["local/**", "sql/**", ".github/workflows/local.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ambiente-local-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -x local/init/localstack/*.sh local/init/mysql/*.sh local/scripts/*.sh
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar docker-compose.yml
+        run: docker compose config --quiet
+      - name: Subir o ambiente
+        run: docker compose up -d --wait
+      - name: Verificar recursos
+        run: ./scripts/verificar.sh
+      - name: Logs em caso de falha
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Derrubar
+        if: always()
+        run: docker compose down -v
