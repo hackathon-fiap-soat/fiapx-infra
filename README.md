@@ -81,6 +81,10 @@ Mesmos nomes de produção, com o prefixo `fiapx-local-*` e os parâmetros em `/
 - **`s3:TestEvent`:** ao configurar a notificação, o S3 envia uma mensagem de teste para a fila. O init
   limpa a fila, mas o consumidor do `fiapx-video-api` deve ignorar essa mensagem, porque em produção ela
   também chega.
+- **Containers de outros repositórios:** entram na rede `fiapx_default` (ex.: o compose do `fiapx-video-api`) e
+  usam os hosts `mysql` e `localstack`. As URLs que o LocalStack devolve, como as das filas
+  (`sqs.us-east-1.localhost.localstack.cloud`), também funcionam ali, porque o compose dá esses nomes como alias
+  ao container do LocalStack.
 - **Host do banco nos segredos:** `localhost`, para quem roda o serviço na máquina. Um serviço dentro do
   compose usa o host `mysql`.
 

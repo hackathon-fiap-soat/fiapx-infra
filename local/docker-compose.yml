@@ -48,6 +48,15 @@ services:
       FIAPX_DB_PORT: ${MYSQL_PORT:-3306}
     ports:
       - "${LOCALSTACK_PORT:-4566}:4566"
+    networks:
+      default:
+        # As URLs que o LocalStack devolve (ex.: filas do SQS) usam estes nomes, que fora do Docker resolvem
+        # para 127.0.0.1. Os aliases fazem os mesmos nomes chegarem ao LocalStack de dentro de outros
+        # containers da rede (fiapx-video-api, fiapx-video-processor...).
+        aliases:
+          - localhost.localstack.cloud
+          - sqs.us-east-1.localhost.localstack.cloud
+          - s3.localhost.localstack.cloud
     volumes:
       - ./init/localstack:/etc/localstack/init/ready.d:ro
       - /var/run/docker.sock:/var/run/docker.sock
