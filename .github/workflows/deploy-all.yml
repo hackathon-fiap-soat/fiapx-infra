@@ -30,6 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Cada etapa só roda se a anterior deu certo, ou se foi pulada de propósito (a_partir_de).
   confirmar:
     # Automático só depois de um apply com sucesso disparado por merge (não por PR).
     if: >-
@@ -62,25 +63,33 @@ jobs:
 
   notification:
     needs: [confirmar, infra]
-    if: always() && needs.confirmar.result == 'success' && needs.infra.result != 'failure' && needs.confirmar.outputs.ordem <= 1
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 1 &&
+      (needs.infra.result == 'success' || (needs.infra.result == 'skipped' && needs.confirmar.outputs.ordem > 0))
     uses: hackathon-fiap-soat/fiapx-notification/.github/workflows/deploy.yml@main
     secrets: inherit
 
   auth:
     needs: [confirmar, notification]
-    if: always() && needs.confirmar.result == 'success' && needs.notification.result != 'failure' && needs.confirmar.outputs.ordem <= 2
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 2 &&
+      (needs.notification.result == 'success' || (needs.notification.result == 'skipped' && needs.confirmar.outputs.ordem > 1))
     uses: hackathon-fiap-soat/fiapx-auth/.github/workflows/deploy.yml@main
     secrets: inherit
 
   video-api:
     needs: [confirmar, auth]
-    if: always() && needs.confirmar.result == 'success' && needs.auth.result != 'failure' && needs.confirmar.outputs.ordem <= 3
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 3 &&
+      (needs.auth.result == 'success' || (needs.auth.result == 'skipped' && needs.confirmar.outputs.ordem > 2))
     uses: hackathon-fiap-soat/fiapx-video-api/.github/workflows/deploy.yml@main
     secrets: inherit
 
   smoke:
     needs: [confirmar, video-api]
-    if: always() && needs.confirmar.result == 'success' && needs.video-api.result != 'failure'
+    if: >-
+      always() && needs.confirmar.result == 'success' &&
+      (needs.video-api.result == 'success' || (needs.video-api.result == 'skipped' && needs.confirmar.outputs.ordem > 3))
     runs-on: ubuntu-latest
     steps:
       - id: aws
