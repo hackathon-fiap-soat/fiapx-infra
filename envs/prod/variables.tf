@@ -17,9 +17,9 @@ variable "node_instance_type" {
 }
 
 variable "aurora_instance_class" {
-  description = "db.serverless (Serverless v2) ou db.t4g.medium, se o lab recusar o Serverless v2."
+  description = "Classe do Aurora. O lab nega db.serverless (ADR-019)."
   type        = string
-  default     = "db.serverless"
+  default     = "db.t3.medium"
 }
 
 variable "interface_endpoints" {

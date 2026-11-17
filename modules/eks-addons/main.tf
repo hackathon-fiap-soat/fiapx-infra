@@ -6,6 +6,7 @@ resource "helm_release" "aws_load_balancer_controller" {
   namespace  = "kube-system"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
+  atomic     = true # instalação que falha é desfeita, sem deixar release "failed" no cluster
   version    = var.chart_versions.aws_load_balancer_controller
 
   set = [
@@ -21,6 +22,7 @@ resource "helm_release" "metrics_server" {
   namespace  = "kube-system"
   repository = "https://kubernetes-sigs.github.io/metrics-server"
   chart      = "metrics-server"
+  atomic     = true # instalação que falha é desfeita, sem deixar release "failed" no cluster
   version    = var.chart_versions.metrics_server
   # O controller registra um webhook para Services; sem ele pronto, criar Service falha.
   depends_on = [helm_release.aws_load_balancer_controller]
@@ -32,6 +34,7 @@ resource "helm_release" "keda" {
   create_namespace = true
   repository       = "https://kedacore.github.io/charts"
   chart            = "keda"
+  atomic           = true # instalação que falha é desfeita, sem deixar release "failed" no cluster
   version          = var.chart_versions.keda
   depends_on       = [helm_release.aws_load_balancer_controller]
 }
@@ -43,6 +46,7 @@ resource "helm_release" "newrelic" {
   create_namespace = true
   repository       = "https://helm-charts.newrelic.com"
   chart            = "nri-bundle"
+  atomic           = true # instalação que falha é desfeita, sem deixar release "failed" no cluster
   version          = var.chart_versions.nri_bundle
   depends_on       = [helm_release.aws_load_balancer_controller]
 

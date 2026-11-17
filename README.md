@@ -1,6 +1,6 @@
 # fiapx-infra
 
-Infraestrutura do FIAP X: VPC, EKS (add-ons), Aurora MySQL, S3 (vídeos e site), SQS/DLQ, ECR, API Gateway + VPC Link + ALB interno, Secrets, outputs no SSM, orquestração do deploy (`deploy-all`/`destroy-all`) e ambiente local (docker-compose + LocalStack).
+Infraestrutura do FIAP X: VPC, EKS (add-ons), Aurora MySQL, S3 (vídeos), SQS/DLQ, ECR, API Gateway + VPC Link + ALB interno, Secrets, outputs no SSM, orquestração do deploy (`deploy-all`/`destroy-all`) e ambiente local (docker-compose + LocalStack).
 
 > Parte do **Hackathon FIAP X — Processador de Vídeos** (PÓS TECH SOAT, Fase 5).
 > 🚧 Em construção. A documentação vem antes do código: a arquitetura, as decisões (ADRs/RFCs) e os
@@ -30,13 +30,12 @@ envs/prod/                 raiz: liga os módulos, cria os databases (databases.
 modules/network/           VPC 2 AZs, NAT único, endpoints gateway (S3, DynamoDB), SG das Lambdas
 modules/eks/               cluster e node group on-demand t3.large (2–4) com a LabRole; IMDS com 2 saltos
 modules/eks-addons/        Helm: AWS Load Balancer Controller, metrics-server, KEDA e New Relic (se houver key)
-modules/aurora/            Aurora MySQL 8.0 Serverless v2 (0,5–2 ACU), segredos do master e de cada serviço
+modules/aurora/            Aurora MySQL 8.0 db.t3.medium (o lab nega Serverless v2), segredos do master e de cada serviço
 modules/s3-bucket/         cria/apaga o bucket pelo AWS CLI (a SCP do lab nega uma leitura do aws_s3_bucket)
 modules/storage/           bucket de vídeos: BPA, SSE-S3, CORS do POST, lifecycle, ObjectCreated → SQS
 modules/messaging/         video-uploaded, processing-commands, saga-replies.fifo + DLQs, alarmes e tópico SNS
-modules/ecr/               fiapx-video-api e fiapx-video-processor (scan on push, 10 imagens)
-modules/edge/              HTTP API (CORS do site, rate limit, logs), VPC Link, ALB interno e Target Group
-modules/web-hosting/       bucket do site com S3 static website (HTTP, leitura pública)
+modules/ecr/               fiapx-video-api, fiapx-video-processor e fiapx-web (scan on push, 10 imagens)
+modules/edge/              HTTP API (rate limit, logs), VPC Link, ALB interno; target groups do video-api (/api/*) e do site (padrão)
 modules/jwt/               par RSA do JWT: privada no Secrets Manager, pública no SSM
 modules/ssm-outputs/       /fiapx/<env>/... (catálogo em fiapx-docs/06-deploy/parametros-ssm.md)
 .github/actions/aws-lab/   credenciais do lab (Secrets) + bucket do state; usada por todos os repositórios
@@ -53,7 +52,7 @@ Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (AD
    expiram com a sessão (~4 h); um job com credencial vencida falha avisando.
 2. **Secrets opcionais:** `NEW_RELIC_LICENSE_KEY` (instala o `nri-bundle` e liga o APM) e `ALERT_EMAILS`
    (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs). Variable opcional
-   `AURORA_INSTANCE_CLASS=db.t4g.medium`, se o lab recusar o Serverless v2.
+   `AURORA_INSTANCE_CLASS` (padrão `db.t3.medium`; o lab nega `db.serverless`).
 3. **Subir tudo:** *Actions → deploy-all → Run workflow*, `confirm = deploy-prod`. Ordem: infra →
    notification → auth → video-api → smoke (health, cadastro, login, lista autenticada e 401 sem token).
    `a_partir_de` retoma uma subida que falhou no meio. O processor e o site entram quando existirem.
@@ -64,8 +63,13 @@ Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (AD
 rede e EKS, depois o resto). O state fica no bucket `fiapx-tfstate-<account_id>` (criado pela action
 `aws-lab` se faltar), chave `fiapx-infra/prod.tfstate`, com lock nativo do S3.
 
-**Plano B do site:** se o lab recusar a bucket policy pública do `web-hosting`, o site vira um pod nginx no
-EKS pela rota `$default` do API Gateway (ADR-019).
+**Site:** o Block Public Access da conta impede S3 static website. O site é um pod nginx do `fiapx-web` no
+EKS: o ALB manda `/api/*` para o video-api e o resto para o site, e o `fiapx-web` cria a rota `$default` do
+API Gateway. Site e API ficam na mesma origem (a URL do API Gateway, em HTTPS), sem CORS (ADR-019).
+
+**Restrições do lab encontradas no primeiro `apply`:** SCP nega `s3:GetBucketObjectLockConfiguration` (por
+isso os buckets são criados pelo AWS CLI no módulo `s3-bucket`); `db.serverless` negado; descrições de
+security group só em ASCII.
 
 ## Como rodar o ambiente local
 

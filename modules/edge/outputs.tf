@@ -17,3 +17,7 @@ output "listener_arn" {
 output "target_group_arn" {
   value = aws_lb_target_group.video_api.arn
 }
+
+output "web_target_group_arn" {
+  value = aws_lb_target_group.web.arn
+}

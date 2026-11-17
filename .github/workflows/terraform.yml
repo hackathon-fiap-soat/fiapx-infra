@@ -29,7 +29,7 @@ env:
   TF_INPUT: "false"
   TF_VAR_newrelic_license_key: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
   TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }}
-  TF_VAR_aurora_instance_class: ${{ vars.AURORA_INSTANCE_CLASS || 'db.serverless' }}
+  TF_VAR_aurora_instance_class: ${{ vars.AURORA_INSTANCE_CLASS || 'db.t3.medium' }}
 
 jobs:
   checks:

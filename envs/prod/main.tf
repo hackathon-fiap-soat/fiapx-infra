@@ -1,5 +1,5 @@
 # Ambiente prod na AWS Academy Learner Lab (ADR-019). Ordem: rede → EKS → add-ons; Aurora, filas, bucket,
-# ECR, borda (API Gateway + ALB), site e JWT; no fim, os databases e os parâmetros SSM.
+# ECR, borda (API Gateway + ALB, que também serve o site) e JWT; no fim, os databases e os parâmetros SSM.
 data "aws_caller_identity" "this" {}
 
 locals {
@@ -7,7 +7,6 @@ locals {
   account_id = data.aws_caller_identity.this.account_id
   # Nomes de bucket são globais na AWS: o id da conta evita colisão.
   videos_bucket = "${local.prefix}-videos-${local.account_id}"
-  web_bucket    = "${local.prefix}-web-${local.account_id}"
 }
 
 module "network" {
@@ -47,11 +46,6 @@ module "aurora" {
   }
 }
 
-module "web_hosting" {
-  source      = "../../modules/web-hosting"
-  bucket_name = local.web_bucket
-}
-
 module "messaging" {
   source            = "../../modules/messaging"
   prefix            = local.prefix
@@ -62,7 +56,7 @@ module "messaging" {
 module "storage" {
   source                   = "../../modules/storage"
   bucket_name              = local.videos_bucket
-  web_origin               = module.web_hosting.url
+  web_origin               = module.edge.api_url # site e API na mesma origem (ADR-019)
   video_uploaded_queue_arn = module.messaging.video_uploaded_arn
   protect                  = var.protect
   depends_on               = [module.messaging] # a política da fila precisa existir antes da notificação
@@ -79,7 +73,6 @@ module "edge" {
   vpc_cidr               = module.network.vpc_cidr
   private_subnet_ids     = module.network.private_subnet_ids
   pods_security_group_id = module.eks.cluster_security_group_id
-  web_origin             = module.web_hosting.url
 }
 
 module "jwt" {
@@ -109,8 +102,8 @@ module "ssm" {
       "apigw/vpc_link_id"               = module.edge.vpc_link_id
       "alb/target_group_arn"            = module.edge.target_group_arn
       "alb/listener_arn"                = module.edge.listener_arn
-      "web/bucket"                      = module.web_hosting.bucket
-      "web/url"                         = module.web_hosting.url
+      "alb/web_target_group_arn"        = module.edge.web_target_group_arn
+      "web/url"                         = module.edge.api_url
       "sns/alerts_topic_arn"            = module.messaging.alerts_topic_arn
     },
     { for k, q in module.messaging.queues : "sqs/${k}/url" => q.url },

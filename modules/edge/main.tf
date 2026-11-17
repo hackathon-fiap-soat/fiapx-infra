@@ -1,6 +1,7 @@
 # Entrada pública da API (ADR-010): HTTP API do API Gateway → VPC Link → ALB interno → pods (TargetGroupBinding).
-# As rotas ficam nos repositórios dos serviços (/api/auth/* no fiapx-auth, /api/videos* no fiapx-video-api).
-# O site (S3 website) está em outra origem, então o HTTP API responde CORS só para ela (ADR-019).
+# As rotas ficam nos repositórios dos serviços (/api/auth/* no fiapx-auth, /api/videos* no fiapx-video-api,
+# $default no fiapx-web). Site e API ficam na mesma origem (URL do API Gateway), sem CORS (ADR-014, ADR-019).
+# No ALB, /api/* vai para o video-api e o resto para o pod nginx do site.
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/aws/apigateway/${var.prefix}"
   retention_in_days = var.log_retention_days
@@ -9,14 +10,6 @@ resource "aws_cloudwatch_log_group" "api" {
 resource "aws_apigatewayv2_api" "this" {
   name          = var.prefix
   protocol_type = "HTTP"
-
-  cors_configuration {
-    allow_origins  = [var.web_origin]
-    allow_methods  = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-    allow_headers  = ["authorization", "content-type", "x-correlation-id"]
-    expose_headers = ["x-correlation-id"]
-    max_age        = 3600
-  }
 }
 
 resource "aws_apigatewayv2_stage" "default" {
@@ -113,11 +106,45 @@ resource "aws_lb_target_group" "video_api" {
   deregistration_delay = 30
 }
 
+resource "aws_lb_target_group" "web" {
+  name        = "${var.prefix}-web"
+  port        = var.app_port
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = var.vpc_id
+
+  health_check {
+    path                = "/"
+    matcher             = "200"
+    interval            = 15
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  deregistration_delay = 15
+}
+
+# Padrão: o site (pod nginx do fiapx-web). /api/*: o video-api (as rotas /api/auth/* vão para as Lambdas
+# direto no API Gateway e nem chegam ao ALB).
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
   default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.web.arn
+  }
+}
+
+resource "aws_lb_listener_rule" "api" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 10
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.video_api.arn
   }

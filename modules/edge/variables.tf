@@ -24,14 +24,9 @@ variable "pods_security_group_id" {
 }
 
 variable "app_port" {
-  description = "Porta do nginx do video-api-web."
+  description = "Porta do nginx dos pods (video-api-web e fiapx-web)."
   type        = number
   default     = 8080
-}
-
-variable "web_origin" {
-  description = "Origem do site, a única liberada no CORS."
-  type        = string
 }
 
 variable "throttle_burst" {
