@@ -1,9 +1,15 @@
 name: deploy-all
 
 # Sobe o ambiente inteiro na ordem do ADR-018: infra → notification → auth → video-api → smoke.
+# Automático: roda sozinho (a partir da notification) sempre que o apply da infraestrutura termina com sucesso
+# na main (merge no fiapx-infra). Manual: Run workflow, com confirmação, para subir tudo ou retomar uma etapa.
 # fiapx-video-processor e fiapx-web entram aqui quando os deploy.yml deles existirem (Etapas 5 e 6.5).
 # Antes: iniciar a sessão do AWS Academy e atualizar os Secrets AWS_* (ADR-019).
 on:
+  workflow_run:
+    workflows: [terraform]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       confirm:
@@ -25,20 +31,27 @@ concurrency:
 
 jobs:
   confirmar:
+    # Automático só depois de um apply com sucesso disparado por merge (não por PR).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     outputs:
       ordem: ${{ steps.o.outputs.ordem }}
     steps:
-      - if: inputs.confirm != 'deploy-prod'
+      - if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'deploy-prod'
         run: |
           echo "::error::Confirmação inválida: digite deploy-prod."
           exit 1
       - id: o
         env:
-          INICIO: ${{ inputs.a_partir_de }}
+          # Depois do apply automático a infraestrutura já está no ar: começa pela notification.
+          INICIO: ${{ github.event_name == 'workflow_run' && 'notification' || inputs.a_partir_de }}
         run: |
           etapas=(infra notification auth video-api smoke)
-          for i in "${!etapas[@]}"; do [ "${etapas[$i]}" = "$INICIO" ] && echo "ordem=$i" >> "$GITHUB_OUTPUT"; done
+          for i in "${!etapas[@]}"; do
+            if [ "${etapas[$i]}" = "$INICIO" ]; then echo "ordem=$i" >> "$GITHUB_OUTPUT"; fi
+          done
 
   infra:
     needs: confirmar
