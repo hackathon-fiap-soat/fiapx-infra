@@ -37,11 +37,11 @@ services:
     image: localstack/localstack:4.14.0
     environment:
       <<: *senhas-db
-      SERVICES: s3,sqs,ses,ssm,secretsmanager,dynamodb,sts,iam,lambda,logs,apigateway
+      SERVICES: s3,sqs,ssm,secretsmanager,dynamodb,sts,iam,lambda,logs,apigateway
       AWS_DEFAULT_REGION: us-east-1
       FIAPX_ENV: local
       FIAPX_WEB_URL: ${FIAPX_WEB_URL:-http://localhost:5173}
-      FIAPX_SES_FROM: nao-responda@hackfiapf5.click
+      FIAPX_SMTP_FROM: nao-responda@fiapx.local
       # Endereço do MySQL gravado nos segredos do banco. "localhost" serve para quem roda na máquina;
       # um serviço dentro do compose sobrescreve o host para "mysql" pela variável DB_HOST.
       FIAPX_DB_HOST: ${FIAPX_DB_HOST:-localhost}
@@ -69,7 +69,7 @@ services:
       start_period: 10s
 
   mailpit:
-    # Caixa de entrada local: o fiapx-notification envia por SMTP (EMAIL_DRIVER=smtp).
+    # Caixa de entrada local: o fiapx-notification envia por SMTP, como em produção (ADR-019).
     image: axllent/mailpit:v1.33.1
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"

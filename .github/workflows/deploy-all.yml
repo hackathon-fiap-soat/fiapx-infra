@@ -1,0 +1,99 @@
+name: deploy-all
+
+# Sobe o ambiente inteiro na ordem do ADR-018: infra → notification → auth → video-api → smoke.
+# fiapx-video-processor e fiapx-web entram aqui quando os deploy.yml deles existirem (Etapas 5 e 6.5).
+# Antes: iniciar a sessão do AWS Academy e atualizar os Secrets AWS_* (ADR-019).
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite "deploy-prod" para confirmar'
+        required: true
+      a_partir_de:
+        description: Retomar a partir desta etapa
+        type: choice
+        default: infra
+        options: [infra, notification, auth, video-api, smoke]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ambiente-prod
+  cancel-in-progress: false
+
+jobs:
+  confirmar:
+    runs-on: ubuntu-latest
+    outputs:
+      ordem: ${{ steps.o.outputs.ordem }}
+    steps:
+      - if: inputs.confirm != 'deploy-prod'
+        run: |
+          echo "::error::Confirmação inválida: digite deploy-prod."
+          exit 1
+      - id: o
+        env:
+          INICIO: ${{ inputs.a_partir_de }}
+        run: |
+          etapas=(infra notification auth video-api smoke)
+          for i in "${!etapas[@]}"; do [ "${etapas[$i]}" = "$INICIO" ] && echo "ordem=$i" >> "$GITHUB_OUTPUT"; done
+
+  infra:
+    needs: confirmar
+    if: needs.confirmar.outputs.ordem <= 0
+    uses: ./.github/workflows/terraform.yml
+    with: { acao: apply }
+    secrets: inherit
+
+  notification:
+    needs: [confirmar, infra]
+    if: always() && needs.confirmar.result == 'success' && needs.infra.result != 'failure' && needs.confirmar.outputs.ordem <= 1
+    uses: hackathon-fiap-soat/fiapx-notification/.github/workflows/deploy.yml@main
+    secrets: inherit
+
+  auth:
+    needs: [confirmar, notification]
+    if: always() && needs.confirmar.result == 'success' && needs.notification.result != 'failure' && needs.confirmar.outputs.ordem <= 2
+    uses: hackathon-fiap-soat/fiapx-auth/.github/workflows/deploy.yml@main
+    secrets: inherit
+
+  video-api:
+    needs: [confirmar, auth]
+    if: always() && needs.confirmar.result == 'success' && needs.auth.result != 'failure' && needs.confirmar.outputs.ordem <= 3
+    uses: hackathon-fiap-soat/fiapx-video-api/.github/workflows/deploy.yml@main
+    secrets: inherit
+
+  smoke:
+    needs: [confirmar, video-api]
+    if: always() && needs.confirmar.result == 'success' && needs.video-api.result != 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - id: aws
+        uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Smoke (health, cadastro, login, lista de vídeos)
+        run: |
+          set -euo pipefail
+          api=$(aws ssm get-parameter --name /fiapx/prod/apigw/url --query Parameter.Value --output text)
+          web=$(aws ssm get-parameter --name /fiapx/prod/web/url --query Parameter.Value --output text)
+          # O ALB leva alguns segundos para registrar os pods depois do rollout.
+          for i in $(seq 1 30); do curl -fsS "$api/api/health/ready" && break; sleep 10; done
+          email="smoke+$(date +%s)@example.com"
+          curl -fsS -X POST "$api/api/auth/register" -H 'content-type: application/json' \
+            -d "{\"name\":\"Smoke\",\"email\":\"$email\",\"password\":\"Smoke-teste-123\"}" >/dev/null
+          token=$(curl -fsS -X POST "$api/api/auth/login" -H 'content-type: application/json' \
+            -d "{\"email\":\"$email\",\"password\":\"Smoke-teste-123\"}" | jq -r .access_token)
+          curl -fsS "$api/api/videos" -H "authorization: Bearer $token" | jq '.meta // .'
+          sem=$(curl -s -o /dev/null -w '%{http_code}' "$api/api/videos")
+          [ "$sem" = "401" ] || { echo "::error::/api/videos sem token devolveu $sem"; exit 1; }
+          {
+            echo "### Ambiente prod no ar"
+            echo "- API: $api"
+            echo "- Site: $web"
+            echo "- Smoke: health, cadastro, login, lista autenticada e 401 sem token ✅"
+          } >> "$GITHUB_STEP_SUMMARY"

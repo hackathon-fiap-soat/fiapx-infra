@@ -1,0 +1,9 @@
+# Exemplo de variáveis. No GitHub Actions elas vêm de Secrets como TF_VAR_* (não versionar o .tfvars).
+env                   = "prod"
+region                = "us-east-1"
+node_instance_type    = "t3.large"
+aurora_instance_class = "db.serverless" # ou "db.t4g.medium" se o lab recusar o Serverless v2
+interface_endpoints   = false
+protect               = true
+alert_emails          = ["time@example.com"]
+newrelic_license_key  = ""

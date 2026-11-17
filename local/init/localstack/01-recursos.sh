@@ -11,7 +11,7 @@ P="fiapx-${ENV}"                      # prefixo dos recursos
 SSM="/fiapx/${ENV}"                   # prefixo dos parâmetros
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 WEB_URL="${FIAPX_WEB_URL:-http://localhost:5173}"
-FROM_ADDRESS="${FIAPX_SES_FROM:-nao-responda@hackfiapf5.click}"
+FROM_ADDRESS="${FIAPX_SMTP_FROM:-nao-responda@fiapx.local}"
 DB_HOST="${FIAPX_DB_HOST:-localhost}"
 DB_PORT="${FIAPX_DB_PORT:-3306}"
 BUCKET="${P}-videos"
@@ -111,15 +111,15 @@ awslocal dynamodb update-time-to-live --table-name "$TABELA" \
 put_param "${SSM}/dynamodb/notifications/table_name" "$TABELA"
 log "tabela ${TABELA}"
 
-# --- SES: remetente --------------------------------------------------------------------------------
-# Localmente o fiapx-notification envia pelo Mailpit (EMAIL_DRIVER=smtp). A identidade no SES do
-# LocalStack existe para testes que usam EMAIL_DRIVER=ses.
-awslocal ses verify-email-identity --email-address "$FROM_ADDRESS"
-awslocal ses verify-domain-identity --domain "${FROM_ADDRESS#*@}" >/dev/null
-awslocal ses create-configuration-set --configuration-set "{\"Name\":\"${P}\"}" 2>/dev/null || true
-put_param "${SSM}/ses/from_address" "$FROM_ADDRESS"
-put_param "${SSM}/ses/configuration_set" "$P"
-log "SES remetente ${FROM_ADDRESS}"
+# --- E-mail: SMTP do Mailpit --------------------------------------------------------------------
+# Em produção o fiapx-notification envia por um provedor SMTP externo (ADR-019: o SES é negado na AWS
+# Academy). Aqui as mesmas chaves apontam para o Mailpit, sem autenticação.
+SMTP_SECRET_ARN=$(awslocal secretsmanager create-secret --name "fiapx/${ENV}/notification/smtp" \
+  --secret-string "$(json "{'user': '', 'password': '', 'from': '${FROM_ADDRESS}'}")" --query ARN --output text)
+put_param "${SSM}/notification/smtp_host" "mailpit"
+put_param "${SSM}/notification/smtp_port" "1025"
+put_param "${SSM}/notification/smtp_secret_arn" "$SMTP_SECRET_ARN"
+log "SMTP mailpit:1025, remetente ${FROM_ADDRESS}"
 
 # --- Secrets Manager: chave do JWT e usuários do banco ---------------------------------------------
 # Par de chaves RSA gerado a cada subida: nenhuma chave fica versionada. A privada vai para o

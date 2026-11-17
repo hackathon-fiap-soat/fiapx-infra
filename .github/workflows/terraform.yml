@@ -1,0 +1,134 @@
+name: terraform
+
+# Infraestrutura da AWS (envs/prod). PR: fmt, validate e plan comentado no PR. Merge na main: apply.
+# Também é chamado pelo deploy-all (acao=apply) e pelo destroy-all (acao=destroy), ADR-018.
+# Credenciais: Secrets da AWS Academy (ADR-019); com a sessão do lab vencida, o job falha com aviso.
+on:
+  pull_request:
+    paths: ["envs/**", "modules/**", "sql/**", ".github/workflows/terraform.yml", ".github/actions/**"]
+  push:
+    branches: [main]
+    paths: ["envs/**", "modules/**", "sql/**", ".github/workflows/terraform.yml", ".github/actions/**"]
+  workflow_call:
+    inputs:
+      acao:
+        description: apply ou destroy
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terraform-prod
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VAR_newrelic_license_key: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+  TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }}
+  TF_VAR_aurora_instance_class: ${{ vars.AURORA_INSTANCE_CLASS || 'db.serverless' }}
+
+jobs:
+  checks:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8 }
+      - run: terraform fmt -check -recursive
+      - working-directory: envs/prod
+        run: terraform init -backend=false && terraform validate
+
+  plan:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: checks
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: envs/prod }
+    steps:
+      - uses: actions/checkout@v4
+      - id: aws
+        uses: ./.github/actions/aws-lab
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8, terraform_wrapper: false }
+      - run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - id: plan
+        run: |
+          terraform plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
+          terraform show -no-color tfplan | grep -E '^Plan:|^No changes' > resumo.txt || true
+      - name: Comentar o plan no PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const resumo = fs.readFileSync('envs/prod/resumo.txt', 'utf8').trim();
+            let plan = fs.readFileSync('envs/prod/plan.txt', 'utf8');
+            if (plan.length > 60000) plan = '...(início omitido)\n' + plan.slice(-60000);
+            const body = `### terraform plan (envs/prod)\n\n**${resumo || 'ver log'}**\n\n<details><summary>Plano completo</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>\n\nO apply acontece no merge (ADR-016). Merge deste PR gera custo na conta do lab.`;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  apply:
+    # Chamado por outro workflow, github.event_name é o do chamador; por isso a decisão usa inputs.acao.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.acao == '') || inputs.acao == 'apply'
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 60
+    defaults:
+      run: { working-directory: envs/prod }
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: hackathon-fiap-soat/fiapx-infra }
+      - id: aws
+        uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8, terraform_wrapper: false }
+      - run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      # O cluster precisa existir antes de os providers Helm e Kubernetes planejarem os add-ons.
+      - name: Rede e EKS
+        run: terraform apply -auto-approve -lock-timeout=10m -target=module.network -target=module.eks
+      - name: Restante
+        run: terraform apply -auto-approve -lock-timeout=10m
+      - name: Resumo
+        run: |
+          {
+            echo "### fiapx-infra aplicado"
+            echo "- API: $(terraform output -raw api_url)"
+            echo "- Site: $(terraform output -raw web_url)"
+            echo "- Parâmetros SSM: $(terraform output -json ssm_parameters | jq length)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  destroy:
+    if: inputs.acao == 'destroy'
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 60
+    defaults:
+      run: { working-directory: envs/prod }
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: hackathon-fiap-soat/fiapx-infra }
+      - id: aws
+        uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8, terraform_wrapper: false }
+      - run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - name: Desligar as proteções (Aurora e bucket de vídeos)
+        run: terraform apply -auto-approve -lock-timeout=10m -var protect=false
+      - name: Destroy
+        run: terraform destroy -auto-approve -lock-timeout=10m -var protect=false
