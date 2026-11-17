@@ -1,6 +1,6 @@
-# Aurora MySQL 8.0 (Aurora MySQL 3) com um database por serviço (ADR-005). Uma instância só: a AWS Academy
-# não suporta Multi-AZ nem Enhanced Monitoring (ADR-019). Serverless v2 por padrão; se o lab recusar
-# db.serverless, aurora_instance_class = "db.t4g.medium" troca para instância provisionada.
+# Aurora MySQL 8.0 (Aurora MySQL 3) com um database por serviço (ADR-005). Uma instância db.t3.medium: a AWS
+# Academy nega db.serverless, Multi-AZ e Enhanced Monitoring (ADR-019). Com instance_class = "db.serverless"
+# (conta própria), o bloco de escala do Serverless v2 é ligado.
 resource "aws_db_subnet_group" "this" {
   name       = var.prefix
   subnet_ids = var.private_subnet_ids

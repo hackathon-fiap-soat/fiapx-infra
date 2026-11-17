@@ -4,8 +4,8 @@ output "api_url" {
 }
 
 output "web_url" {
-  description = "URL do site (S3 website)."
-  value       = module.web_hosting.url
+  description = "URL do site (a mesma do API Gateway)."
+  value       = module.edge.api_url
 }
 
 output "cluster_name" {

@@ -90,7 +90,7 @@ Para um serviço usar o LocalStack: `AWS_ENDPOINT_URL=http://localhost:4566`, `A
 |---|---|---|
 | `local/` | docker-compose (MySQL, LocalStack, Mailpit), scripts de init e `scripts/verificar.sh` | pronto (Etapa 2) |
 | `sql/create-databases.sql` | databases e usuários com privilégio mínimo (entregável); senhas por variável de sessão | pronto |
-| `modules/`, `envs/prod/` | network, eks, eks-addons, aurora (+ Job que roda o SQL), storage, messaging, ecr, edge, web-hosting (S3 website), jwt, ssm-outputs; tudo com a `LabRole` (ADR-019) | escrito (Etapa 7); falta o primeiro `apply` |
+| `modules/`, `envs/prod/` | network, eks, eks-addons, aurora (+ Job que roda o SQL), storage, messaging, ecr, edge, s3-bucket (bucket pelo AWS CLI), jwt, ssm-outputs; tudo com a `LabRole` (ADR-019); site como pod no EKS atrás do ALB | em aplicação (Etapa 7) |
 | `.github/actions/aws-lab/` | credenciais do lab (Secrets) + bucket `fiapx-tfstate-<account_id>`; usada por todos os repositórios | pronto |
 | `.github/workflows/` | `local.yml`; `terraform.yml` (plan no PR, apply no merge, apply/destroy por `workflow_call`); `deploy-all.yml` e `destroy-all.yml` (ADR-018) | escrito |
 

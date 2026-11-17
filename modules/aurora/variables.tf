@@ -30,9 +30,9 @@ variable "engine_version" {
 }
 
 variable "instance_class" {
-  description = "db.serverless (Serverless v2) ou uma classe provisionada aceita pelo lab (ex.: db.t4g.medium)."
+  description = "Classe da instância. O lab nega db.serverless (ADR-019); em conta própria, db.serverless volta a valer."
   type        = string
-  default     = "db.serverless"
+  default     = "db.t3.medium"
 }
 
 variable "min_acu" {
