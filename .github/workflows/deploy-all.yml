@@ -3,7 +3,7 @@ name: deploy-all
 # Sobe o ambiente inteiro na ordem do ADR-018: infra → notification → auth → video-api → smoke.
 # Automático: roda sozinho (a partir da notification) sempre que o apply da infraestrutura termina com sucesso
 # na main (merge no fiapx-infra). Manual: Run workflow, com confirmação, para subir tudo ou retomar uma etapa.
-# O fiapx-video-processor sobe em paralelo, logo depois da infra. O fiapx-web entra na Etapa 6.5.
+# O fiapx-video-processor e o fiapx-web (site no EKS + rota $default) sobem em paralelo, logo depois da infra.
 # Antes: iniciar a sessão do AWS Academy e atualizar os Secrets AWS_* (ADR-019).
 on:
   workflow_run:
@@ -19,7 +19,7 @@ on:
         description: Retomar a partir desta etapa
         type: choice
         default: infra
-        options: [infra, notification, auth, video-api, processor, smoke]
+        options: [infra, notification, auth, video-api, processor, web, smoke]
 
 permissions:
   contents: read
@@ -49,7 +49,7 @@ jobs:
           # Depois do apply automático a infraestrutura já está no ar: começa pela notification.
           INICIO: ${{ github.event_name == 'workflow_run' && 'notification' || inputs.a_partir_de }}
         run: |
-          etapas=(infra notification auth video-api processor smoke)
+          etapas=(infra notification auth video-api processor web smoke)
           for i in "${!etapas[@]}"; do
             if [ "${etapas[$i]}" = "$INICIO" ]; then echo "ordem=$i" >> "$GITHUB_OUTPUT"; fi
           done
@@ -94,12 +94,22 @@ jobs:
     uses: hackathon-fiap-soat/fiapx-video-processor/.github/workflows/deploy.yml@main
     secrets: inherit
 
+  # Site: imagem nginx, TargetGroupBinding no target group padrão do ALB e rota $default (ADR-019).
+  web:
+    needs: [confirmar, infra]
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 5 &&
+      (needs.infra.result == 'success' || (needs.infra.result == 'skipped' && needs.confirmar.outputs.ordem > 0))
+    uses: hackathon-fiap-soat/fiapx-web/.github/workflows/deploy.yml@main
+    secrets: inherit
+
   smoke:
-    needs: [confirmar, video-api, processor]
+    needs: [confirmar, video-api, processor, web]
     if: >-
       always() && needs.confirmar.result == 'success' &&
       (needs.video-api.result == 'success' || (needs.video-api.result == 'skipped' && needs.confirmar.outputs.ordem > 3)) &&
-      (needs.processor.result == 'success' || (needs.processor.result == 'skipped' && needs.confirmar.outputs.ordem > 4))
+      (needs.processor.result == 'success' || (needs.processor.result == 'skipped' && needs.confirmar.outputs.ordem > 4)) &&
+      (needs.web.result == 'success' || (needs.web.result == 'skipped' && needs.confirmar.outputs.ordem > 5))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -120,6 +130,11 @@ jobs:
           web=$(aws ssm get-parameter --name /fiapx/prod/web/url --query Parameter.Value --output text)
           # O ALB leva alguns segundos para registrar os pods depois do rollout.
           for _ in $(seq 1 30); do curl -fsS "$api/api/health/ready" && break; sleep 10; done
+          # Site na mesma origem: / e uma rota do SPA (fallback do nginx) devolvem o index.html.
+          for rota in / /login; do
+            html=$(curl -fsS "$web$rota")
+            grep -q 'id="root"' <<<"$html" || { echo "::error::site em $rota não devolveu o index.html do SPA"; exit 1; }
+          done
           email="smoke+$(date +%s)@example.com"
           curl -fsS -X POST "$api/api/auth/register" -H 'content-type: application/json' \
             -d "{\"name\":\"Smoke\",\"email\":\"$email\",\"password\":\"Smoke-teste-123\"}" >/dev/null
@@ -169,6 +184,7 @@ jobs:
             echo "### Ambiente prod no ar"
             echo "- API: $api"
             echo "- Site: $web"
+            echo "- Site: / e /login servem o SPA ✅"
             echo "- Smoke: health, cadastro, login, lista autenticada, 401 sem token ✅"
             echo "- Vídeo de 3 s: upload → COMPLETED → zip com $frames frames ✅"
             echo "- E-mail VIDEO_COMPLETED registrado no DynamoDB: $envio"
