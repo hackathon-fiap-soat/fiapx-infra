@@ -8,7 +8,7 @@ resource "aws_db_subnet_group" "this" {
 
 resource "aws_security_group" "this" {
   name        = "${var.prefix}-aurora"
-  description = "Aurora MySQL: 3306 só a partir das Lambdas e do EKS"
+  description = "Aurora MySQL 3306 from Lambdas and EKS only"
   vpc_id      = var.vpc_id
 }
 

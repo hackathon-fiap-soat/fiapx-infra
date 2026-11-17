@@ -22,6 +22,8 @@ resource "helm_release" "metrics_server" {
   repository = "https://kubernetes-sigs.github.io/metrics-server"
   chart      = "metrics-server"
   version    = var.chart_versions.metrics_server
+  # O controller registra um webhook para Services; sem ele pronto, criar Service falha.
+  depends_on = [helm_release.aws_load_balancer_controller]
 }
 
 resource "helm_release" "keda" {
@@ -31,6 +33,7 @@ resource "helm_release" "keda" {
   repository       = "https://kedacore.github.io/charts"
   chart            = "keda"
   version          = var.chart_versions.keda
+  depends_on       = [helm_release.aws_load_balancer_controller]
 }
 
 resource "helm_release" "newrelic" {
@@ -41,6 +44,7 @@ resource "helm_release" "newrelic" {
   repository       = "https://helm-charts.newrelic.com"
   chart            = "nri-bundle"
   version          = var.chart_versions.nri_bundle
+  depends_on       = [helm_release.aws_load_balancer_controller]
 
   set = [
     { name = "global.cluster", value = var.cluster_name },

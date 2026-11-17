@@ -1,7 +1,7 @@
 output "bucket" {
-  value = aws_s3_bucket.videos.bucket
+  value = module.bucket.name
 }
 
 output "bucket_arn" {
-  value = aws_s3_bucket.videos.arn
+  value = module.bucket.arn
 }

@@ -43,7 +43,7 @@ resource "aws_apigatewayv2_stage" "default" {
 # --- VPC Link e ALB interno ---------------------------------------------------------------------------
 resource "aws_security_group" "vpc_link" {
   name        = "${var.prefix}-vpc-link"
-  description = "VPC Link do API Gateway"
+  description = "API Gateway VPC Link"
   vpc_id      = var.vpc_id
   egress {
     from_port   = 80
@@ -55,7 +55,7 @@ resource "aws_security_group" "vpc_link" {
 
 resource "aws_security_group" "alb" {
   name        = "${var.prefix}-alb"
-  description = "ALB interno: só o VPC Link entra"
+  description = "Internal ALB, ingress from the VPC Link only"
   vpc_id      = var.vpc_id
   ingress {
     from_port       = 80
@@ -78,7 +78,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_para_pods" {
   ip_protocol                  = "tcp"
   from_port                    = var.app_port
   to_port                      = var.app_port
-  description                  = "ALB interno para os pods (TargetGroupBinding)"
+  description                  = "Internal ALB to pods (TargetGroupBinding)"
 }
 
 resource "aws_apigatewayv2_vpc_link" "this" {
