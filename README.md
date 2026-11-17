@@ -31,6 +31,7 @@ modules/network/           VPC 2 AZs, NAT único, endpoints gateway (S3, DynamoD
 modules/eks/               cluster e node group on-demand t3.large (2–4) com a LabRole; IMDS com 2 saltos
 modules/eks-addons/        Helm: AWS Load Balancer Controller, metrics-server, KEDA e New Relic (se houver key)
 modules/aurora/            Aurora MySQL 8.0 Serverless v2 (0,5–2 ACU), segredos do master e de cada serviço
+modules/s3-bucket/         cria/apaga o bucket pelo AWS CLI (a SCP do lab nega uma leitura do aws_s3_bucket)
 modules/storage/           bucket de vídeos: BPA, SSE-S3, CORS do POST, lifecycle, ObjectCreated → SQS
 modules/messaging/         video-uploaded, processing-commands, saga-replies.fifo + DLQs, alarmes e tópico SNS
 modules/ecr/               fiapx-video-api e fiapx-video-processor (scan on push, 10 imagens)

@@ -42,8 +42,8 @@ module "aurora" {
   instance_class      = var.aurora_instance_class
   deletion_protection = var.protect
   allowed_security_group_ids = {
-    "Lambdas (auth, notification)" = module.network.lambda_security_group_id
-    "Pods e nos do EKS"            = module.eks.cluster_security_group_id
+    "Lambdas auth and notification" = module.network.lambda_security_group_id
+    "EKS nodes and pods"            = module.eks.cluster_security_group_id
   }
 }
 

@@ -98,7 +98,7 @@ resource "aws_vpc_endpoint" "gateway" {
 resource "aws_security_group" "endpoints" {
   count       = var.interface_endpoints ? 1 : 0
   name        = "${var.prefix}-endpoints"
-  description = "VPC endpoints de interface (HTTPS a partir da VPC)"
+  description = "Interface VPC endpoints, HTTPS from the VPC"
   vpc_id      = aws_vpc.this.id
   ingress {
     from_port   = 443
@@ -122,7 +122,7 @@ resource "aws_vpc_endpoint" "interface" {
 # Security group das Lambdas na VPC (auth e notification). O do Aurora aceita conexões dele.
 resource "aws_security_group" "lambda" {
   name        = "${var.prefix}-lambda"
-  description = "Lambdas na VPC (fiapx-auth, fiapx-notification)"
+  description = "Lambdas in the VPC (fiapx-auth, fiapx-notification)"
   vpc_id      = aws_vpc.this.id
   egress {
     from_port   = 0
