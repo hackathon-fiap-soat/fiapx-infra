@@ -12,25 +12,26 @@ e-mail em caso de erro. Entregáveis: documentação da arquitetura, script do b
 vídeo de até 10 minutos.
 
 Stack escolhida pelo time: AWS + Terraform, EKS + KEDA, Laravel 13 (PHP 8.4.27), Lambdas Node.js 24, Aurora
-MySQL Serverless v2, SQS (Standard, FIFO e DLQ), S3 com POST pré-assinado, SAGA orquestrada com outbox,
+MySQL (provisionado `db.t3.medium`), SQS (Standard, FIFO e DLQ), S3 com POST pré-assinado, SAGA orquestrada com outbox,
 DynamoDB, e-mail por SMTP externo (Brevo, Nodemailer; Mailpit no local), New Relic + CloudWatch, React + Vite
-em S3 static website (API Gateway em outra origem, com CORS).
+em pod nginx no EKS, na mesma origem da API (rota `$default` do API Gateway, sem CORS na API).
 
 O `prod` roda na **AWS Academy Learner Lab** (ADR-019): sem OIDC (credenciais do lab em GitHub Secrets,
 atualizadas a cada sessão de ~4 h), sem roles próprias (tudo usa a `LabRole`), sem SES, CloudFront,
-Route 53, spot nem CloudWatch Metric Streams.
+Route 53, spot nem CloudWatch Metric Streams; o lab nega `db.serverless` e bucket público (Block Public
+Access da conta).
 
 Repositórios na organização [hackathon-fiap-soat](https://github.com/hackathon-fiap-soat), clonados lado a lado na mesma pasta:
 
 | Repositório | Papel | Stack | Etapa |
 |---|---|---|---|
 | [`fiapx-docs`](https://github.com/hackathon-fiap-soat/fiapx-docs) | Documentação: arquitetura, ADRs, RFCs, contratos, OpenAPI, diagramas e entrega | Markdown + Mermaid + JSON Schema | Etapa 1 ✅ |
-| **fiapx-infra** | VPC, EKS, Aurora, S3 (vídeos e site), SQS, ECR, API Gateway, SSM, orquestrador de deploy e ambiente local | Terraform + Helm + docker-compose | Etapa 2 ✅ (local), Etapas 7–8 |
+| **fiapx-infra** | VPC, EKS, Aurora, S3 (vídeos), SQS, ECR, API Gateway, SSM, orquestrador de deploy e ambiente local | Terraform + Helm + docker-compose | Etapa 2 ✅ (local), Etapas 7–8 |
 | [`fiapx-auth`](https://github.com/hackathon-fiap-soat/fiapx-auth) | Lambdas de cadastro, login, senha e authorizer JWT | Node.js 24 + Terraform | Etapa 3 ✅ |
 | [`fiapx-video-api`](https://github.com/hackathon-fiap-soat/fiapx-video-api) | API de vídeos, URLs pré-assinadas, orquestrador da SAGA e outbox | PHP 8.4.27 + Laravel 13 no EKS | Etapa 4 ✅ |
 | [`fiapx-video-processor`](https://github.com/hackathon-fiap-soat/fiapx-video-processor) | Worker que extrai os frames com ffmpeg e gera o zip | PHP 8.4.27 + Laravel 13 no EKS + KEDA | Etapa 5 |
 | [`fiapx-notification`](https://github.com/hackathon-fiap-soat/fiapx-notification) | E-mails por SMTP (Brevo) com histórico e idempotência no DynamoDB | Node.js 24 + Terraform | Etapa 6 |
-| [`fiapx-web`](https://github.com/hackathon-fiap-soat/fiapx-web) | Front-end: cadastro, login, senha, upload, status e download | React + Vite + TypeScript + Tailwind | Etapa 6.5 |
+| [`fiapx-web`](https://github.com/hackathon-fiap-soat/fiapx-web) | Front-end: cadastro, login, senha, upload, status e download | React + Vite + TypeScript + Tailwind + nginx no EKS | Etapa 6.5 |
 
 ## Onde está a verdade
 
