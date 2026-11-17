@@ -1,0 +1,163 @@
+name: New Relic · dashboards, alertas e Synthetics como código
+
+# Stack observability/newrelic (ADR-021), com state próprio. PR: fmt, validate e plan comentado no PR.
+# Merge na main: apply, só se o ambiente estiver no ar (sem ele, alertas e monitor apontariam para o vazio).
+# Também é chamado pelo deploy-all (acao=apply, depois do smoke) e pelo destroy-all (acao=destroy, antes dos
+# serviços). Credenciais: Secrets da AWS Academy (state no S3 e SSM) e do New Relic (User key).
+on:
+  pull_request:
+    paths: ["observability/**", ".github/workflows/newrelic.yml"]
+  push:
+    branches: [main]
+    paths: ["observability/**", ".github/workflows/newrelic.yml"]
+  workflow_call:
+    inputs:
+      acao:
+        description: apply ou destroy
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: newrelic-prod
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VAR_newrelic_account_id: ${{ secrets.NEW_RELIC_ACCOUNT_ID }}
+  TF_VAR_newrelic_api_key: ${{ secrets.NEW_RELIC_API_KEY }}
+  TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }}
+
+jobs:
+  checks:
+    name: Conferir formatação e validar
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: observability/newrelic }
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Instalar o Terraform
+        uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8 }
+      - name: Conferir a formatação (terraform fmt)
+        run: terraform fmt -check -recursive
+      - name: Inicializar sem backend e validar (terraform validate)
+        run: terraform init -backend=false && terraform validate
+
+  plan:
+    name: Planejar e comentar o plan no PR
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: checks
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: observability/newrelic }
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
+        uses: ./.github/actions/aws-lab
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Instalar o Terraform
+        uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8, terraform_wrapper: false }
+      - name: Inicializar o Terraform (state no S3)
+        run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - name: Gerar o plan e o resumo
+        run: |
+          terraform plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
+          terraform show -no-color tfplan | grep -E '^Plan:|^No changes' > resumo.txt || true
+      - name: Comentar o plan no PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const resumo = fs.readFileSync('observability/newrelic/resumo.txt', 'utf8').trim();
+            let plan = fs.readFileSync('observability/newrelic/plan.txt', 'utf8');
+            if (plan.length > 60000) plan = '...(início omitido)\n' + plan.slice(-60000);
+            const body = `### terraform plan (observability/newrelic)\n\n**${resumo || 'ver log'}**\n\n<details><summary>Plano completo</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>\n\nO apply acontece no merge (só com o ambiente no ar) e no deploy-all (ADR-021). Não gera custo na AWS.`;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  apply:
+    name: Aplicar
+    # Chamado por outro workflow, github.event_name é o do chamador; por isso a decisão usa inputs.acao.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.acao == '') || inputs.acao == 'apply'
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 20
+    defaults:
+      run: { working-directory: observability/newrelic }
+    steps:
+      - name: Baixar o fiapx-infra
+        uses: actions/checkout@v4
+        with: { repository: hackathon-fiap-soat/fiapx-infra }
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
+        uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Conferir se o ambiente está no ar
+        id: ambiente
+        run: |
+          if aws ssm get-parameter --name /fiapx/prod/apigw/url >/dev/null 2>&1; then
+            echo "no_ar=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no_ar=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Ambiente desligado: dashboards, alertas e Synthetics sobem no próximo deploy-all."
+          fi
+      - name: Instalar o Terraform
+        if: steps.ambiente.outputs.no_ar == 'true'
+        uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8, terraform_wrapper: false }
+      - name: Inicializar o Terraform (state no S3)
+        if: steps.ambiente.outputs.no_ar == 'true'
+        run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - name: Aplicar dashboards, alertas e Synthetics
+        if: steps.ambiente.outputs.no_ar == 'true'
+        run: terraform apply -auto-approve -lock-timeout=10m
+      - name: Escrever o resumo do apply
+        if: steps.ambiente.outputs.no_ar == 'true'
+        run: |
+          {
+            echo "### New Relic aplicado"
+            terraform output -json dashboards | jq -r 'to_entries[] | "- Dashboard \(.key): \(.value)"'
+            echo "- Synthetics: $(terraform output -raw synthetics_monitor)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  destroy:
+    name: Destruir
+    if: inputs.acao == 'destroy'
+    runs-on: ubuntu-latest
+    environment: prod
+    timeout-minutes: 20
+    defaults:
+      run: { working-directory: observability/newrelic }
+    steps:
+      - name: Baixar o fiapx-infra
+        uses: actions/checkout@v4
+        with: { repository: hackathon-fiap-soat/fiapx-infra }
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
+        uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Instalar o Terraform
+        uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.15.8, terraform_wrapper: false }
+      - name: Inicializar o Terraform (state no S3)
+        run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - name: Destruir dashboards, alertas e Synthetics
+        run: terraform destroy -auto-approve -lock-timeout=10m

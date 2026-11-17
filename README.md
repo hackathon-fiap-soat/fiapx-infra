@@ -38,8 +38,9 @@ modules/ecr/               fiapx-video-api, fiapx-video-processor e fiapx-web (s
 modules/edge/              HTTP API (rate limit, logs), VPC Link, ALB interno; target groups do video-api (/api/*) e do site (padrão)
 modules/jwt/               par RSA do JWT: privada no Secrets Manager, pública no SSM
 modules/ssm-outputs/       /fiapx/<env>/... (catálogo em fiapx-docs/06-deploy/parametros-ssm.md)
+observability/newrelic/    stack própria (ADR-021): dashboards (JSON em dashboards/), alertas, e-mail e Synthetics do New Relic
 .github/actions/aws-lab/   credenciais do lab (Secrets) + bucket do state; usada por todos os repositórios
-.github/workflows/         terraform.yml, deploy-all.yml, destroy-all.yml, local.yml, sonar.yml
+.github/workflows/         terraform.yml, newrelic.yml, deploy-all.yml, destroy-all.yml, local.yml, sonar.yml
 ```
 
 ## Deploy na AWS (AWS Academy)
@@ -50,8 +51,9 @@ Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (AD
    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN` (da organização ou de cada repositório).
    **Nunca em Variables:** os repositórios são públicos e Variables aparecem nos logs. As credenciais
    expiram com a sessão (~4 h); um job com credencial vencida falha avisando.
-2. **Secrets opcionais:** `NEW_RELIC_LICENSE_KEY` (instala o `nri-bundle` e liga o APM) e `ALERT_EMAILS`
-   (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs; a variável é `sensitive`,
+2. **Secrets opcionais:** `NEW_RELIC_LICENSE_KEY` (instala o `nri-bundle` e liga o APM), `NEW_RELIC_ACCOUNT_ID` e
+   `NEW_RELIC_API_KEY` (User key: dashboards, alertas e Synthetics) e `ALERT_EMAILS`
+   (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs e destino dos alertas do New Relic; a variável é `sensitive`,
    então os endereços não aparecem no `plan` comentado no PR). Depois do apply, cada endereço confirma a
    assinatura pelo e-mail "AWS Notification - Subscription Confirmation". Variable opcional
    `AURORA_INSTANCE_CLASS` (padrão `db.t3.medium`; o lab nega `db.serverless`).
@@ -60,13 +62,20 @@ Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (AD
    **Subir tudo manualmente:** *Actions → Deploy-all · sobe o ambiente prod inteiro → Run workflow*, `confirm = deploy-prod`. Ordem: infra →
    notification → auth → video-api, com o processor e o web em paralelo → smoke (site, health, cadastro,
    login, lista autenticada, 401 sem token, um vídeo de 3 s até `COMPLETED` com o zip de 3 frames e o e-mail
-   no DynamoDB). `a_partir_de` retoma uma subida que falhou no meio.
-4. **Derrubar tudo:** *Actions → Destroy-all · derruba o ambiente prod inteiro*, `confirm = destroy-prod`. Fazer ao fim de cada demonstração:
+   no DynamoDB) → observabilidade (stack do New Relic). `a_partir_de` retoma uma subida que falhou no meio.
+4. **Derrubar tudo:** *Actions → Destroy-all · derruba o ambiente prod inteiro*, `confirm = destroy-prod` (começa pela
+   stack do New Relic, para não sobrar alerta nem monitor apontando para o vazio). Fazer ao fim de cada demonstração:
    o ambiente custa ~US$ 10/dia do crédito do lab.
 
 `terraform.yml`: em PR, `fmt`, `validate` e `plan` comentado no PR; no merge na `main`, `apply` (primeiro
 rede e EKS, depois o resto). O state fica no bucket `fiapx-tfstate-<account_id>` (criado pela action
 `aws-lab` se faltar), chave `fiapx-infra/prod.tfstate`, com lock nativo do S3.
+
+`newrelic.yml` ([ADR-021](https://github.com/hackathon-fiap-soat/fiapx-docs/blob/main/04-adrs/ADR-021-observabilidade-como-codigo-no-new-relic.md)): a stack `observability/newrelic` cria os dashboards "FIAP X — Processamento
+de vídeos" e "FIAP X — Kubernetes (EKS)", a política "FIAP X — prod" com 6 condições NRQL, o e-mail do time e
+o monitor Synthetics de `/api/health/ready` (endereço lido do SSM). Em PR, `fmt`, `validate` e `plan`
+comentado; no merge na `main`, `apply` só se o ambiente estiver no ar; o `deploy-all` aplica depois do smoke e
+o `destroy-all` destrói primeiro. State em `fiapx-infra/newrelic.tfstate`, no mesmo bucket.
 
 **Site:** o Block Public Access da conta impede S3 static website. O site é um pod nginx do `fiapx-web` no
 EKS: o ALB manda `/api/*` para o video-api e o resto para o site, e o `fiapx-web` cria a rota `$default` do
