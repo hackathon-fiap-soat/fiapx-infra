@@ -1,0 +1,50 @@
+name: Credenciais da AWS Academy e bucket do state
+description: >-
+  Configura as credenciais temporárias do Learner Lab (GitHub Secrets) e garante o bucket do tfstate
+  fiapx-tfstate-<account_id>, versionado e criptografado (ADR-019). Usado por todos os repositórios fiapx-*.
+inputs:
+  aws-access-key-id: { description: secrets.AWS_ACCESS_KEY_ID, required: true }
+  aws-secret-access-key: { description: secrets.AWS_SECRET_ACCESS_KEY, required: true }
+  aws-session-token: { description: secrets.AWS_SESSION_TOKEN, required: true }
+  region: { description: Região, required: false, default: us-east-1 }
+outputs:
+  state-bucket:
+    description: Nome do bucket do tfstate
+    value: ${{ steps.state.outputs.bucket }}
+  account-id:
+    description: Id da conta
+    value: ${{ steps.state.outputs.account }}
+runs:
+  using: composite
+  steps:
+    - name: Credenciais do lab
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-session-token: ${{ inputs.aws-session-token }}
+        aws-region: ${{ inputs.region }}
+    - name: Bucket do state
+      id: state
+      shell: bash
+      env:
+        REGION: ${{ inputs.region }}
+      run: |
+        set -euo pipefail
+        if ! account=$(aws sts get-caller-identity --query Account --output text 2>/tmp/sts.err); then
+          cat /tmp/sts.err
+          echo "::error::Credenciais da AWS Academy inválidas ou vencidas. Inicie a sessão do lab, atualize os Secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e AWS_SESSION_TOKEN e reexecute."
+          exit 1
+        fi
+        bucket="fiapx-tfstate-${account}"
+        if ! aws s3api head-bucket --bucket "$bucket" 2>/dev/null; then
+          echo "Criando o bucket do state $bucket"
+          aws s3api create-bucket --bucket "$bucket" --region "$REGION" >/dev/null
+          aws s3api put-bucket-versioning --bucket "$bucket" --versioning-configuration Status=Enabled
+          aws s3api put-bucket-encryption --bucket "$bucket" --server-side-encryption-configuration \
+            '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+          aws s3api put-public-access-block --bucket "$bucket" --public-access-block-configuration \
+            BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+        fi
+        echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
+        echo "account=$account" >> "$GITHUB_OUTPUT"

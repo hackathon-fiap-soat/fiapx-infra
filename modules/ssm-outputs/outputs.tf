@@ -1,0 +1,3 @@
+output "names" {
+  value = sort([for p in aws_ssm_parameter.this : p.name])
+}

@@ -61,8 +61,6 @@ confere "sort key message_id" '"AttributeName": "message_id"' "$tabela"
 confere "LSI email-created_at-index" email-created_at-index "$tabela"
 confere "TTL em expires_at" ENABLED "$(aws_ dynamodb describe-time-to-live --table-name fiapx-local-notifications)"
 
-secao "SES"
-confere "remetente nao-responda@hackfiapf5.click" nao-responda@hackfiapf5.click "$(aws_ ses list-identities)"
 
 secao "Secrets Manager"
 segredos=$(aws_ secretsmanager list-secrets --query 'SecretList[].Name' --output text | tr '\t' '\n')
@@ -76,7 +74,7 @@ params=$(aws_ ssm get-parameters-by-path --path /fiapx/local --recursive --query
 lista <<<"$params"
 for p in s3/videos_bucket sqs/video-uploaded/url sqs/processing-commands/url sqs/saga-replies/url \
          sqs/notification-commands/url aurora/endpoint db/auth/secret_arn db/video/secret_arn \
-         auth/jwt_public_key auth/jwt_private_key_secret_arn ses/from_address web/url \
+         auth/jwt_public_key auth/jwt_private_key_secret_arn notification/smtp_host notification/smtp_secret_arn web/url \
          dynamodb/notifications/table_name; do
   confere "/fiapx/local/$p" "/fiapx/local/$p" "$params"
 done
@@ -111,7 +109,7 @@ aws_ s3 rm "s3://fiapx-local-videos/results/verificacao-$$/frames.zip" >/dev/nul
 
 # 3) E-mail enviado por SMTP chega ao Mailpit.
 assunto="verificacao-ambiente-$$"
-printf 'From: nao-responda@hackfiapf5.click\nTo: teste@fiapx.local\nSubject: %s\n\nok\n' "$assunto" \
+printf 'From: nao-responda@fiapx.local\nTo: teste@fiapx.local\nSubject: %s\n\nok\n' "$assunto" \
   | docker compose exec -T mailpit /mailpit sendmail -S localhost:1025 -t
 busca=$(curl -sf "http://localhost:${MAILPIT_UI_PORT:-8025}/api/v1/search?query=subject:${assunto}")
 confere "e-mail SMTP chegou ao Mailpit" "$assunto" "$busca"

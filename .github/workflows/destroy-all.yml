@@ -1,0 +1,52 @@
+name: destroy-all
+
+# Derruba o ambiente na ordem inversa (ADR-018): video-api (kubectl delete, para o TargetGroupBinding
+# soltar o ALB, e as rotas), auth, notification e por último a infraestrutura, com as proteções desligadas.
+# fiapx-web e fiapx-video-processor entram aqui quando os destroy.yml deles existirem.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite "destroy-prod" para confirmar'
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ambiente-prod
+  cancel-in-progress: false
+
+jobs:
+  confirmar:
+    runs-on: ubuntu-latest
+    steps:
+      - if: inputs.confirm != 'destroy-prod'
+        run: |
+          echo "::error::Confirmação inválida: digite destroy-prod."
+          exit 1
+
+  video-api:
+    needs: confirmar
+    uses: hackathon-fiap-soat/fiapx-video-api/.github/workflows/destroy.yml@main
+    secrets: inherit
+
+  auth:
+    needs: video-api
+    if: always() && needs.confirmar.result == 'success'
+    uses: hackathon-fiap-soat/fiapx-auth/.github/workflows/destroy.yml@main
+    secrets: inherit
+
+  notification:
+    needs: [confirmar, auth]
+    if: always() && needs.confirmar.result == 'success'
+    uses: hackathon-fiap-soat/fiapx-notification/.github/workflows/destroy.yml@main
+    secrets: inherit
+
+  infra:
+    needs: [confirmar, video-api, auth, notification]
+    if: always() && needs.confirmar.result == 'success' && needs.video-api.result == 'success' && needs.auth.result == 'success' && needs.notification.result == 'success'
+    uses: ./.github/workflows/terraform.yml
+    with: { acao: destroy }
+    secrets: inherit

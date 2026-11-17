@@ -1,6 +1,6 @@
 # fiapx-infra
 
-Infraestrutura do FIAP X: VPC, EKS (add-ons), Aurora MySQL, S3, SQS/DLQ, SES, ECR, API Gateway + VPC Link + ALB interno, Secrets, OIDC do GitHub, outputs no SSM e ambiente local (docker-compose + LocalStack).
+Infraestrutura do FIAP X: VPC, EKS (add-ons), Aurora MySQL, S3 (vídeos e site), SQS/DLQ, ECR, API Gateway + VPC Link + ALB interno, Secrets, outputs no SSM, orquestração do deploy (`deploy-all`/`destroy-all`) e ambiente local (docker-compose + LocalStack).
 
 > Parte do **Hackathon FIAP X — Processador de Vídeos** (PÓS TECH SOAT, Fase 5).
 > 🚧 Em construção. A documentação vem antes do código: a arquitetura, as decisões (ADRs/RFCs) e os
@@ -22,7 +22,49 @@ local/                     ambiente local (Etapa 2)
 sql/create-databases.sql   databases fiapx_auth e fiapx_video e usuários com privilégio mínimo (entregável)
 ```
 
-Os módulos Terraform da AWS (`bootstrap/`, `modules/`, `envs/prod/`) chegam na Etapa 7.
+Infraestrutura da AWS (Etapa 7), na conta da **AWS Academy Learner Lab**
+([ADR-019](https://github.com/hackathon-fiap-soat/fiapx-docs/blob/main/04-adrs/ADR-019-deploy-na-aws-academy-learner-lab.md)):
+
+```text
+envs/prod/                 raiz: liga os módulos, cria os databases (databases.tf) e publica o SSM
+modules/network/           VPC 2 AZs, NAT único, endpoints gateway (S3, DynamoDB), SG das Lambdas
+modules/eks/               cluster e node group on-demand t3.large (2–4) com a LabRole; IMDS com 2 saltos
+modules/eks-addons/        Helm: AWS Load Balancer Controller, metrics-server, KEDA e New Relic (se houver key)
+modules/aurora/            Aurora MySQL 8.0 Serverless v2 (0,5–2 ACU), segredos do master e de cada serviço
+modules/storage/           bucket de vídeos: BPA, SSE-S3, CORS do POST, lifecycle, ObjectCreated → SQS
+modules/messaging/         video-uploaded, processing-commands, saga-replies.fifo + DLQs, alarmes e tópico SNS
+modules/ecr/               fiapx-video-api e fiapx-video-processor (scan on push, 10 imagens)
+modules/edge/              HTTP API (CORS do site, rate limit, logs), VPC Link, ALB interno e Target Group
+modules/web-hosting/       bucket do site com S3 static website (HTTP, leitura pública)
+modules/jwt/               par RSA do JWT: privada no Secrets Manager, pública no SSM
+modules/ssm-outputs/       /fiapx/<env>/... (catálogo em fiapx-docs/06-deploy/parametros-ssm.md)
+.github/actions/aws-lab/   credenciais do lab (Secrets) + bucket do state; usada por todos os repositórios
+.github/workflows/         terraform.yml, deploy-all.yml, destroy-all.yml, local.yml
+```
+
+## Deploy na AWS (AWS Academy)
+
+Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (ADR-016, ADR-019).
+
+1. **Antes de cada deploy:** iniciar a sessão do lab e copiar as credenciais de *AWS Details* para os Secrets
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN` (da organização ou de cada repositório).
+   **Nunca em Variables:** os repositórios são públicos e Variables aparecem nos logs. As credenciais
+   expiram com a sessão (~4 h); um job com credencial vencida falha avisando.
+2. **Secrets opcionais:** `NEW_RELIC_LICENSE_KEY` (instala o `nri-bundle` e liga o APM) e `ALERT_EMAILS`
+   (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs). Variable opcional
+   `AURORA_INSTANCE_CLASS=db.t4g.medium`, se o lab recusar o Serverless v2.
+3. **Subir tudo:** *Actions → deploy-all → Run workflow*, `confirm = deploy-prod`. Ordem: infra →
+   notification → auth → video-api → smoke (health, cadastro, login, lista autenticada e 401 sem token).
+   `a_partir_de` retoma uma subida que falhou no meio. O processor e o site entram quando existirem.
+4. **Derrubar tudo:** *Actions → destroy-all*, `confirm = destroy-prod`. Fazer ao fim de cada demonstração:
+   o ambiente custa ~US$ 10/dia do crédito do lab.
+
+`terraform.yml`: em PR, `fmt`, `validate` e `plan` comentado no PR; no merge na `main`, `apply` (primeiro
+rede e EKS, depois o resto). O state fica no bucket `fiapx-tfstate-<account_id>` (criado pela action
+`aws-lab` se faltar), chave `fiapx-infra/prod.tfstate`, com lock nativo do S3.
+
+**Plano B do site:** se o lab recusar a bucket policy pública do `web-hosting`, o site vira um pod nginx no
+EKS pela rota `$default` do API Gateway (ADR-019).
 
 ## Como rodar o ambiente local
 
@@ -38,7 +80,7 @@ docker compose down -v        # derruba e apaga os dados do MySQL
 | Serviço | Endereço | Credenciais |
 |---|---|---|
 | MySQL 8.0 (no lugar do Aurora) | `localhost:3306` | `fiapx_auth` / `fiapx_auth_local`, `fiapx_video` / `fiapx_video_local`, `root` / `root_local` |
-| LocalStack (S3, SQS, SES, SSM, Secrets Manager, DynamoDB, Lambda, API Gateway, IAM) | `http://localhost:4566` | `AWS_ACCESS_KEY_ID=test`, `AWS_SECRET_ACCESS_KEY=test`, região `us-east-1` |
+| LocalStack (S3, SQS, SSM, Secrets Manager, DynamoDB, Lambda, API Gateway, IAM) | `http://localhost:4566` | `AWS_ACCESS_KEY_ID=test`, `AWS_SECRET_ACCESS_KEY=test`, região `us-east-1` |
 | Mailpit (caixa de entrada) | UI em `http://localhost:8025`, SMTP em `localhost:1025` | sem autenticação |
 
 Os valores são só para uso local. Para trocar portas ou senhas, copie `local/.env.example` para `local/.env`.
@@ -62,7 +104,7 @@ Mesmos nomes de produção, com o prefixo `fiapx-local-*` e os parâmetros em `/
 | Fila Standard, visibility 60 s, DLQ após 3 (*) | `fiapx-local-notification-commands` | `/sqs/notification-commands/url`, `/arn` |
 | DLQs (retenção de 14 dias) | `fiapx-local-<fila>-dlq[.fifo]` | `/sqs/<fila>-dlq/url` |
 | Tabela DynamoDB (PK `email`, SK `message_id`, LSI `email-created_at-index`, TTL `expires_at`) (*) | `fiapx-local-notifications` | `/dynamodb/notifications/table_name` |
-| Remetente SES e configuration set | `nao-responda@hackfiapf5.click`, `fiapx-local` | `/ses/from_address`, `/ses/configuration_set` |
+| SMTP do Mailpit (mesmas chaves que o provedor externo em produção) e remetente | `mailpit:1025`, segredo `fiapx/local/notification/smtp` (`from` = `nao-responda@fiapx.local`) | `/notification/smtp_host`, `/smtp_port`, `/smtp_secret_arn` |
 | Chave privada RSA do JWT (gerada a cada subida) | segredo `fiapx/local/auth/jwt-private-key` | `/auth/jwt_private_key_secret_arn` |
 | Chave pública do JWT | — | `/auth/jwt_public_key` |
 | Usuários do banco (`host`, `port`, `username`, `password`, `dbname`) | segredos `fiapx/local/db/auth` e `fiapx/local/db/video` | `/db/auth/secret_arn`, `/db/video/secret_arn` |
