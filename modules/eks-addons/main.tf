@@ -59,6 +59,14 @@ resource "helm_release" "newrelic" {
     { name = "kube-state-metrics.enabled", value = "true" },
     { name = "kubeEvents.enabled", value = "true" },
     { name = "logging.enabled", value = "true" },
+    # Reservas de CPU (requests) proporcionais ao uso real. Os padrões do chart reservam ~1 vCPU no cluster
+    # (250m por nó só no fluent-bit e 200m por nó no scraper do kubelet); com dois t3.large, o video-api deixou
+    # de caber no rollout ("Insufficient cpu") com os nós em ~6% de uso. Os limites do chart ficam como estão.
+    { name = "newrelic-logging.resources.requests.cpu", value = "50m" },
+    { name = "newrelic-infrastructure.kubelet.kubelet.resources.requests.cpu", value = "25m" },
+    { name = "newrelic-infrastructure.kubelet.agent.resources.requests.cpu", value = "25m" },
+    { name = "newrelic-infrastructure.ksm.ksm.resources.requests.cpu", value = "25m" },
+    { name = "newrelic-infrastructure.ksm.forwarder.resources.requests.cpu", value = "25m" },
   ]
   set_sensitive = [
     { name = "global.licenseKey", value = var.newrelic_license_key },
