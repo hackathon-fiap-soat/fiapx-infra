@@ -51,15 +51,17 @@ Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (AD
    **Nunca em Variables:** os repositórios são públicos e Variables aparecem nos logs. As credenciais
    expiram com a sessão (~4 h); um job com credencial vencida falha avisando.
 2. **Secrets opcionais:** `NEW_RELIC_LICENSE_KEY` (instala o `nri-bundle` e liga o APM) e `ALERT_EMAILS`
-   (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs). Variable opcional
+   (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs; a variável é `sensitive`,
+   então os endereços não aparecem no `plan` comentado no PR). Depois do apply, cada endereço confirma a
+   assinatura pelo e-mail "AWS Notification - Subscription Confirmation". Variable opcional
    `AURORA_INSTANCE_CLASS` (padrão `db.t3.medium`; o lab nega `db.serverless`).
 3. **Automático:** todo merge no `fiapx-infra` que muda a infraestrutura roda o `apply` e, se der certo, dispara
    sozinho o `deploy-all` a partir da notification. Merges nos serviços fazem o deploy de cada um.
-   **Subir tudo manualmente:** *Actions → deploy-all → Run workflow*, `confirm = deploy-prod`. Ordem: infra →
-   notification → auth → video-api, com o processor em paralelo → smoke (health, cadastro, login, lista
-   autenticada, 401 sem token e um vídeo de 3 s até `COMPLETED` com o zip de 3 frames).
-   `a_partir_de` retoma uma subida que falhou no meio. O site entra quando existir (Etapa 6.5).
-4. **Derrubar tudo:** *Actions → destroy-all*, `confirm = destroy-prod`. Fazer ao fim de cada demonstração:
+   **Subir tudo manualmente:** *Actions → Deploy-all · sobe o ambiente prod inteiro → Run workflow*, `confirm = deploy-prod`. Ordem: infra →
+   notification → auth → video-api, com o processor e o web em paralelo → smoke (site, health, cadastro,
+   login, lista autenticada, 401 sem token, um vídeo de 3 s até `COMPLETED` com o zip de 3 frames e o e-mail
+   no DynamoDB). `a_partir_de` retoma uma subida que falhou no meio.
+4. **Derrubar tudo:** *Actions → Destroy-all · derruba o ambiente prod inteiro*, `confirm = destroy-prod`. Fazer ao fim de cada demonstração:
    o ambiente custa ~US$ 10/dia do crédito do lab.
 
 `terraform.yml`: em PR, `fmt`, `validate` e `plan` comentado no PR; no merge na `main`, `apply` (primeiro
@@ -148,7 +150,7 @@ serviço.
 
 ## CI
 
-O workflow `ambiente-local` roda em todo PR que altera `local/` ou `sql/`: `shellcheck` nos scripts e
+O workflow `Ambiente local · docker compose (MySQL, LocalStack, Mailpit)` (`local.yml`) roda em todo PR que altera `local/` ou `sql/`: `shellcheck` nos scripts e
 `docker compose up --wait` seguido de `./scripts/verificar.sh`.
 
 ## Links

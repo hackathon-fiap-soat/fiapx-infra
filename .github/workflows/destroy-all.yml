@@ -1,8 +1,10 @@
-name: destroy-all
+name: Destroy-all · derruba o ambiente prod inteiro
+run-name: ${{ format('Destroy-all · derrubada manual por {0}', github.actor) }}
 
 # Derruba o ambiente na ordem inversa (ADR-018): video-api (kubectl delete, para o TargetGroupBinding
 # soltar o ALB, e as rotas), auth, notification e por último a infraestrutura, com as proteções desligadas.
-# O fiapx-web entra aqui quando o destroy.yml dele existir.
+# O processor e o web (site e rota $default) saem primeiro, em paralelo.
+# Os nomes dos jobs são numerados pela ordem; no gráfico, os chamados aparecem como "<etapa> / Remover".
 on:
   workflow_dispatch:
     inputs:
@@ -20,41 +22,55 @@ concurrency:
 
 jobs:
   confirmar:
+    name: 0 · Confirmar
     runs-on: ubuntu-latest
     steps:
-      - if: inputs.confirm != 'destroy-prod'
+      - name: Recusar se a confirmação não for destroy-prod
+        if: inputs.confirm != 'destroy-prod'
         run: |
           echo "::error::Confirmação inválida: digite destroy-prod."
           exit 1
 
   # O worker sai antes do video-api, que apaga o namespace fiapx inteiro.
   processor:
+    name: 1 · Processor (EKS + KEDA)
     needs: confirmar
     uses: hackathon-fiap-soat/fiapx-video-processor/.github/workflows/destroy.yml@main
     secrets: inherit
 
+  # O site sai antes do video-api, que apaga o namespace fiapx inteiro.
+  web:
+    name: 1 · Site (nginx no EKS e rota $default)
+    needs: confirmar
+    uses: hackathon-fiap-soat/fiapx-web/.github/workflows/destroy.yml@main
+    secrets: inherit
+
   video-api:
-    needs: [confirmar, processor]
+    name: 2 · Video API (EKS e rotas)
+    needs: [confirmar, processor, web]
     if: always() && needs.confirmar.result == 'success'
     uses: hackathon-fiap-soat/fiapx-video-api/.github/workflows/destroy.yml@main
     secrets: inherit
 
   auth:
+    name: 3 · Auth (Lambdas e rotas)
     needs: [confirmar, video-api]
     if: always() && needs.confirmar.result == 'success'
     uses: hackathon-fiap-soat/fiapx-auth/.github/workflows/destroy.yml@main
     secrets: inherit
 
   notification:
+    name: 4 · Notificação (Lambda, fila e tabela)
     needs: [confirmar, auth]
     if: always() && needs.confirmar.result == 'success'
     uses: hackathon-fiap-soat/fiapx-notification/.github/workflows/destroy.yml@main
     secrets: inherit
 
   infra:
-    needs: [confirmar, processor, video-api, auth, notification]
+    name: 5 · Infraestrutura (Terraform destroy)
+    needs: [confirmar, processor, web, video-api, auth, notification]
     if: >-
-      always() && needs.confirmar.result == 'success' && needs.processor.result == 'success' &&
+      always() && needs.confirmar.result == 'success' && needs.processor.result == 'success' && needs.web.result == 'success' &&
       needs.video-api.result == 'success' && needs.auth.result == 'success' && needs.notification.result == 'success'
     uses: ./.github/workflows/terraform.yml
     with: { acao: destroy }

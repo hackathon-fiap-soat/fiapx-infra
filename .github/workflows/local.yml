@@ -1,4 +1,4 @@
-name: ambiente-local
+name: Ambiente local · docker compose (MySQL, LocalStack, Mailpit)
 
 # Sobe o ambiente local (docker compose) e roda o script de verificação, para garantir que todo
 # integrante consegue subir MySQL + LocalStack + Mailpit com os recursos esperados.
@@ -19,29 +19,33 @@ concurrency:
 
 jobs:
   shellcheck:
+    name: Scripts do ambiente (shellcheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: shellcheck
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Verificar os scripts de init e de verificação (shellcheck)
         run: shellcheck -x local/init/localstack/*.sh local/init/mysql/*.sh local/scripts/*.sh
 
   compose:
+    name: Subir e verificar o compose
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: local
     steps:
-      - uses: actions/checkout@v4
-      - name: Validar docker-compose.yml
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Validar o docker-compose.yml
         run: docker compose config --quiet
-      - name: Subir o ambiente
+      - name: Subir o ambiente (MySQL, LocalStack e Mailpit)
         run: docker compose up -d --wait
-      - name: Verificar recursos
+      - name: Conferir os recursos criados no ambiente (verificar.sh)
         run: ./scripts/verificar.sh
-      - name: Logs em caso de falha
+      - name: Mostrar os logs do ambiente (só em falha)
         if: failure()
         run: docker compose logs --no-color
-      - name: Derrubar
+      - name: Derrubar o ambiente e apagar os volumes
         if: always()
         run: docker compose down -v
