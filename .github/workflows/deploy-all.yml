@@ -111,7 +111,9 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
       - name: ffmpeg (vídeo de teste)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg zip >/dev/null
-      - name: Smoke (health, cadastro, login, lista, upload até COMPLETED e download do zip)
+      - name: Smoke (health, cadastro, login, lista, upload até COMPLETED, download do zip e e-mail)
+        env:
+          SMTP_FROM_DEFINIDO: ${{ secrets.SMTP_FROM != '' }}
         run: |
           set -euo pipefail
           api=$(aws ssm get-parameter --name /fiapx/prod/apigw/url --query Parameter.Value --output text)
@@ -147,10 +149,27 @@ jobs:
           curl -fsS -o frames.zip "$link"
           frames=$(unzip -Z1 frames.zip | grep -c '\.png$' || true)
           [ "$frames" -eq 3 ] || { echo "::error::zip com $frames frames (esperado 3)"; exit 1; }
+
+          # Notificação: o VIDEO_COMPLETED do vídeo acima fica registrado no DynamoDB com PK = e-mail do usuário.
+          tabela=$(aws ssm get-parameter --name /fiapx/prod/dynamodb/notifications/table_name --query Parameter.Value --output text)
+          envio=""
+          for _ in $(seq 1 24); do
+            envio=$(aws dynamodb query --table-name "$tabela" --key-condition-expression 'email = :e' \
+              --expression-attribute-values "{\":e\":{\"S\":\"$email\"}}" --query 'Items[0].status.S' --output text)
+            [ "$envio" = "SENT" ] || [ "$envio" = "FAILED" ] && break
+            sleep 5
+          done
+          if [ "$envio" != "SENT" ]; then
+            if [ "$SMTP_FROM_DEFINIDO" = "true" ]; then
+              echo "::error::e-mail VIDEO_COMPLETED para $email terminou em '$envio' (esperado SENT)"; exit 1
+            fi
+            echo "::warning::e-mail VIDEO_COMPLETED em '$envio': falta o Secret SMTP_FROM (remetente verificado no Brevo)"
+          fi
           {
             echo "### Ambiente prod no ar"
             echo "- API: $api"
             echo "- Site: $web"
             echo "- Smoke: health, cadastro, login, lista autenticada, 401 sem token ✅"
             echo "- Vídeo de 3 s: upload → COMPLETED → zip com $frames frames ✅"
+            echo "- E-mail VIDEO_COMPLETED registrado no DynamoDB: $envio"
           } >> "$GITHUB_STEP_SUMMARY"
