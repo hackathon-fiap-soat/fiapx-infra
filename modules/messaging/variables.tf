@@ -12,4 +12,5 @@ variable "alert_emails" {
   description = "E-mails do time que recebem os alarmes (cada um confirma a assinatura do SNS)."
   type        = list(string)
   default     = []
+  sensitive   = true
 }

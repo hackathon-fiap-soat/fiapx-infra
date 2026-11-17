@@ -38,6 +38,7 @@ variable "alert_emails" {
   description = "E-mails do time para os alarmes das DLQs (TF_VAR_alert_emails='[\"a@b.com\"]')."
   type        = list(string)
   default     = []
+  sensitive   = true
 }
 
 variable "newrelic_license_key" {

@@ -51,11 +51,13 @@ resource "aws_sns_topic" "alertas" {
   name = "${var.prefix}-alertas"
 }
 
+# Os e-mails são sensíveis (o plan é comentado em PRs de um repositório público): count pelo tamanho da
+# lista, para o endereço não virar chave do recurso no plan.
 resource "aws_sns_topic_subscription" "email" {
-  for_each  = toset(var.alert_emails)
+  count     = nonsensitive(length(var.alert_emails))
   topic_arn = aws_sns_topic.alertas.arn
   protocol  = "email"
-  endpoint  = each.value
+  endpoint  = var.alert_emails[count.index]
 }
 
 resource "aws_cloudwatch_metric_alarm" "dlq" {
