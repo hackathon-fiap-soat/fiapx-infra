@@ -14,6 +14,9 @@ resource "helm_release" "aws_load_balancer_controller" {
     { name = "region", value = var.region },
     { name = "vpcId", value = var.vpc_id },
     { name = "replicaCount", value = "1" },
+    # Sem isso, todo upgrade gera um certificado novo para o webhook e o pod segue servindo o antigo até
+    # reiniciar: a criação de Services (KEDA, metrics-server, apps) falha com "certificate signed by unknown authority".
+    { name = "keepTLSSecret", value = "true" },
   ]
 }
 
