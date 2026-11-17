@@ -1,4 +1,4 @@
-name: workflows
+name: Lint dos workflows (actionlint)
 
 # actionlint (com shellcheck) em todo PR que mexe em workflows ou actions: erro de expressão, needs
 # faltando ou script quebrado aparece no PR, e não no meio de um deploy.
@@ -11,8 +11,10 @@ permissions:
 
 jobs:
   actionlint:
+    name: Validar workflows e actions (actionlint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: actionlint
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Rodar o actionlint (inclui shellcheck nos scripts)
         run: docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 -color

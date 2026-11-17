@@ -109,6 +109,10 @@ Pontos de atenção:
   precisam do cluster existindo.
 - O orquestrador `deploy-all.yml` chama o `deploy.yml` reutilizável de cada repositório na ordem
   infra → notification → auth → video-api (processor e web em paralelo) → smoke ponta a ponta.
+- O `deploy-all.yml` dispara depois do `terraform.yml` por `on.workflow_run.workflows`, que casa pelo `name:`
+  exibido (`Terraform · plan no PR e apply da infraestrutura na main`), não pelo arquivo: renomear um exige
+  mudar o outro. Padrão de nomes dos workflows: `<Tipo> · <o que faz>`; jobs do deploy-all/destroy-all
+  numerados pela ordem (`0 · …` a `5 · …`); steps começam por verbo. Não mude ids de job (`needs`, outputs).
 
 ## Skills deste repositório
 

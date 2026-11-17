@@ -61,7 +61,7 @@ aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::<conta>:role/
 
 Acompanhe com `gh run watch <id> --exit-status` e, em falha, `gh run view <id> --log-failed`.
 
-**Smoke:** o job `smoke` do `deploy-all` precisa passar. Toda etapa que entrega algo novo acrescenta ao smoke
+**Smoke:** o job `5 · Smoke ponta a ponta` (id `smoke`) do `deploy-all` precisa passar. Toda etapa que entrega algo novo acrescenta ao smoke
 a verificação disso (ex.: upload até `COMPLETED`, item `SENT` no DynamoDB, tela de login).
 
 ## 4. Diagnóstico

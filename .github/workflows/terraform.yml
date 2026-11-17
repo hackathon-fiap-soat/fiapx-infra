@@ -1,4 +1,5 @@
-name: terraform
+# O deploy-all.yml escuta este workflow pelo nome (on.workflow_run.workflows): ao mudar o name, mude lá também.
+name: Terraform · plan no PR e apply da infraestrutura na main
 
 # Infraestrutura da AWS (envs/prod). PR: fmt, validate e plan comentado no PR. Merge na main: apply.
 # Também é chamado pelo deploy-all (acao=apply) e pelo destroy-all (acao=destroy), ADR-018.
@@ -31,36 +32,49 @@ env:
   TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS || '[]' }}
   TF_VAR_aurora_instance_class: ${{ vars.AURORA_INSTANCE_CLASS || 'db.t3.medium' }}
 
+# Chamados pelo deploy-all/destroy-all, os jobs aparecem como "1 · Infraestrutura (Terraform apply) / Aplicar"
+# e "5 · Infraestrutura (Terraform destroy) / Destruir".
 jobs:
   checks:
+    name: Conferir formatação e validar
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Instalar o Terraform
+        uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.15.8 }
-      - run: terraform fmt -check -recursive
-      - working-directory: envs/prod
+      - name: Conferir a formatação (terraform fmt)
+        run: terraform fmt -check -recursive
+      - name: Inicializar sem backend e validar envs/prod (terraform validate)
+        working-directory: envs/prod
         run: terraform init -backend=false && terraform validate
 
   plan:
+    name: Planejar e comentar o plan no PR
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     needs: checks
     runs-on: ubuntu-latest
     defaults:
       run: { working-directory: envs/prod }
     steps:
-      - uses: actions/checkout@v4
-      - id: aws
+      - name: Baixar o código
+        uses: actions/checkout@v4
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
         uses: ./.github/actions/aws-lab
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-      - uses: hashicorp/setup-terraform@v3
+      - name: Instalar o Terraform
+        uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.15.8, terraform_wrapper: false }
-      - run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
-      - id: plan
+      - name: Inicializar o Terraform (state no S3)
+        run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - name: Gerar o plan e o resumo
+        id: plan
         run: |
           terraform plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
           terraform show -no-color tfplan | grep -E '^Plan:|^No changes' > resumo.txt || true
@@ -76,6 +90,7 @@ jobs:
             await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
 
   apply:
+    name: Aplicar
     # Chamado por outro workflow, github.event_name é o do chamador; por isso a decisão usa inputs.acao.
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.acao == '') || inputs.acao == 'apply'
     runs-on: ubuntu-latest
@@ -84,23 +99,27 @@ jobs:
     defaults:
       run: { working-directory: envs/prod }
     steps:
-      - uses: actions/checkout@v4
+      - name: Baixar o fiapx-infra
+        uses: actions/checkout@v4
         with: { repository: hackathon-fiap-soat/fiapx-infra }
-      - id: aws
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
         uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-      - uses: hashicorp/setup-terraform@v3
+      - name: Instalar o Terraform
+        uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.15.8, terraform_wrapper: false }
-      - run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - name: Inicializar o Terraform (state no S3)
+        run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
       # O cluster precisa existir antes de os providers Helm e Kubernetes planejarem os add-ons.
-      - name: Rede e EKS
+      - name: Aplicar a rede e o EKS primeiro
         run: terraform apply -auto-approve -lock-timeout=10m -target=module.network -target=module.eks
-      - name: Restante
+      - name: Aplicar o restante da infraestrutura
         run: terraform apply -auto-approve -lock-timeout=10m
-      - name: Resumo
+      - name: Escrever o resumo do apply
         run: |
           {
             echo "### fiapx-infra aplicado"
@@ -110,6 +129,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   destroy:
+    name: Destruir
     if: inputs.acao == 'destroy'
     runs-on: ubuntu-latest
     environment: prod
@@ -117,18 +137,22 @@ jobs:
     defaults:
       run: { working-directory: envs/prod }
     steps:
-      - uses: actions/checkout@v4
+      - name: Baixar o fiapx-infra
+        uses: actions/checkout@v4
         with: { repository: hackathon-fiap-soat/fiapx-infra }
-      - id: aws
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
         uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-      - uses: hashicorp/setup-terraform@v3
+      - name: Instalar o Terraform
+        uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.15.8, terraform_wrapper: false }
-      - run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
-      - name: Desligar a proteção do Aurora
+      - name: Inicializar o Terraform (state no S3)
+        run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
+      - name: Desligar a proteção do Aurora (protect=false)
         run: terraform apply -auto-approve -lock-timeout=10m -var protect=false
-      - name: Destroy
+      - name: Destruir a infraestrutura
         run: terraform destroy -auto-approve -lock-timeout=10m -var protect=false

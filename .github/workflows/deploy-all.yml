@@ -1,13 +1,19 @@
-name: deploy-all
+name: Deploy-all · sobe o ambiente prod inteiro
+run-name: >-
+  ${{ github.event_name == 'workflow_run'
+  && format('Deploy-all · automático após o Terraform na main (apply: {0})', github.event.workflow_run.conclusion)
+  || format('Deploy-all · manual por {0}, a partir de {1}', github.actor, inputs.a_partir_de) }}
 
 # Sobe o ambiente inteiro na ordem do ADR-018: infra → notification → auth → video-api → smoke.
 # Automático: roda sozinho (a partir da notification) sempre que o apply da infraestrutura termina com sucesso
 # na main (merge no fiapx-infra). Manual: Run workflow, com confirmação, para subir tudo ou retomar uma etapa.
 # O fiapx-video-processor e o fiapx-web (site no EKS + rota $default) sobem em paralelo, logo depois da infra.
 # Antes: iniciar a sessão do AWS Academy e atualizar os Secrets AWS_* (ADR-019).
+# Os nomes dos jobs são numerados pela ordem; no gráfico, os chamados aparecem como "<etapa> / Implantar".
 on:
   workflow_run:
-    workflows: [terraform]
+    # Casa pelo name: do terraform.yml (não pelo arquivo): ao mudar o nome lá, mude aqui também.
+    workflows: ["Terraform · plan no PR e apply da infraestrutura na main"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -32,6 +38,7 @@ concurrency:
 jobs:
   # Cada etapa só roda se a anterior deu certo, ou se foi pulada de propósito (a_partir_de).
   confirmar:
+    name: 0 · Confirmar e definir o ponto de partida
     # Automático só depois de um apply com sucesso disparado por merge (não por PR).
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -40,11 +47,13 @@ jobs:
     outputs:
       ordem: ${{ steps.o.outputs.ordem }}
     steps:
-      - if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'deploy-prod'
+      - name: Recusar se a confirmação não for deploy-prod
+        if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'deploy-prod'
         run: |
           echo "::error::Confirmação inválida: digite deploy-prod."
           exit 1
-      - id: o
+      - name: Definir a etapa inicial (a_partir_de ou notification no automático)
+        id: o
         env:
           # Depois do apply automático a infraestrutura já está no ar: começa pela notification.
           INICIO: ${{ github.event_name == 'workflow_run' && 'notification' || inputs.a_partir_de }}
@@ -55,6 +64,7 @@ jobs:
           done
 
   infra:
+    name: 1 · Infraestrutura (Terraform apply)
     needs: confirmar
     if: needs.confirmar.outputs.ordem <= 0
     uses: ./.github/workflows/terraform.yml
@@ -62,6 +72,7 @@ jobs:
     secrets: inherit
 
   notification:
+    name: 2 · Notificação (Lambda, fila e tabela)
     needs: [confirmar, infra]
     if: >-
       always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 1 &&
@@ -70,6 +81,7 @@ jobs:
     secrets: inherit
 
   auth:
+    name: 3 · Auth (Lambdas e rotas)
     needs: [confirmar, notification]
     if: >-
       always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 2 &&
@@ -78,6 +90,7 @@ jobs:
     secrets: inherit
 
   video-api:
+    name: 4 · Video API (EKS)
     needs: [confirmar, auth]
     if: >-
       always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 3 &&
@@ -87,6 +100,7 @@ jobs:
 
   # Depende só da infraestrutura (ECR, filas, bucket, KEDA); roda em paralelo com notification → auth → video-api.
   processor:
+    name: 4 · Processor (EKS + KEDA)
     needs: [confirmar, infra]
     if: >-
       always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 4 &&
@@ -96,6 +110,7 @@ jobs:
 
   # Site: imagem nginx, TargetGroupBinding no target group padrão do ALB e rota $default (ADR-019).
   web:
+    name: 4 · Site (nginx no EKS)
     needs: [confirmar, infra]
     if: >-
       always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 5 &&
@@ -104,6 +119,7 @@ jobs:
     secrets: inherit
 
   smoke:
+    name: 5 · Smoke ponta a ponta
     needs: [confirmar, video-api, processor, web]
     if: >-
       always() && needs.confirmar.result == 'success' &&
@@ -113,15 +129,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - id: aws
+      - name: Autenticar na AWS Academy e garantir o bucket do state
+        id: aws
         uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-      - name: ffmpeg (vídeo de teste)
+      - name: Instalar o ffmpeg e o zip (vídeo de teste)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg zip >/dev/null
-      - name: Smoke (health, cadastro, login, lista, upload até COMPLETED, download do zip e e-mail)
+      - name: Testar ponta a ponta (site, health, cadastro, login, upload até COMPLETED, zip e e-mail)
         env:
           SMTP_FROM_DEFINIDO: ${{ secrets.SMTP_FROM != '' }}
         run: |

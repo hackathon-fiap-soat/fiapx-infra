@@ -40,4 +40,4 @@ docker compose down -v        # derruba e apaga o volume do MySQL
 3. Atualize a tabela "Recursos criados" do README e, no `fiapx-docs`, `06-deploy/parametros-ssm.md`.
 4. Valide: `shellcheck -x` nos scripts (ou `docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 -x ...`),
    `docker compose down -v && docker compose up -d --wait && ./scripts/verificar.sh`.
-5. O workflow `ambiente-local` repete isso no PR.
+5. O workflow `Ambiente local · docker compose (MySQL, LocalStack, Mailpit)` (`local.yml`) repete isso no PR.
