@@ -12,9 +12,3 @@ variable "video_uploaded_queue_arn" {
   description = "Fila que recebe os eventos ObjectCreated de uploads/."
   type        = string
 }
-
-variable "protect" {
-  description = "true impede apagar o bucket com objetos; o destroy-all desliga."
-  type        = bool
-  default     = true
-}

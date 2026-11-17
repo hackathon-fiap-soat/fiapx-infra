@@ -53,9 +53,12 @@ Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (AD
 2. **Secrets opcionais:** `NEW_RELIC_LICENSE_KEY` (instala o `nri-bundle` e liga o APM) e `ALERT_EMAILS`
    (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs). Variable opcional
    `AURORA_INSTANCE_CLASS` (padrão `db.t3.medium`; o lab nega `db.serverless`).
-3. **Subir tudo:** *Actions → deploy-all → Run workflow*, `confirm = deploy-prod`. Ordem: infra →
-   notification → auth → video-api → smoke (health, cadastro, login, lista autenticada e 401 sem token).
-   `a_partir_de` retoma uma subida que falhou no meio. O processor e o site entram quando existirem.
+3. **Automático:** todo merge no `fiapx-infra` que muda a infraestrutura roda o `apply` e, se der certo, dispara
+   sozinho o `deploy-all` a partir da notification. Merges nos serviços fazem o deploy de cada um.
+   **Subir tudo manualmente:** *Actions → deploy-all → Run workflow*, `confirm = deploy-prod`. Ordem: infra →
+   notification → auth → video-api, com o processor em paralelo → smoke (health, cadastro, login, lista
+   autenticada, 401 sem token e um vídeo de 3 s até `COMPLETED` com o zip de 3 frames).
+   `a_partir_de` retoma uma subida que falhou no meio. O site entra quando existir (Etapa 6.5).
 4. **Derrubar tudo:** *Actions → destroy-all*, `confirm = destroy-prod`. Fazer ao fim de cada demonstração:
    o ambiente custa ~US$ 10/dia do crédito do lab.
 

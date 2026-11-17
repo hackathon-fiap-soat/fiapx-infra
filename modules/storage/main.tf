@@ -1,9 +1,11 @@
 # Bucket de vídeos (ADR-006): Block Public Access, SSE-S3, CORS só para o POST de upload vindo do site,
 # lifecycle e notificação ObjectCreated em uploads/ para a fila video-uploaded.
 module "bucket" {
-  source        = "../s3-bucket"
-  name          = var.bucket_name
-  force_destroy = !var.protect
+  source = "../s3-bucket"
+  name   = var.bucket_name
+  # Só dados temporários (lifecycle de 7 e 30 dias): o destroy sempre esvazia o bucket. Variar isto por
+  # variável mudaria o input do terraform_data e recriaria o bucket no meio do destroy-all.
+  force_destroy = true
 }
 
 # Bucket criado antes desta mudança pelo aws_s3_bucket: sai do state sem ser apagado.

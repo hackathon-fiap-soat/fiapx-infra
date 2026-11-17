@@ -58,7 +58,6 @@ module "storage" {
   bucket_name              = local.videos_bucket
   web_origin               = module.edge.api_url # site e API na mesma origem (ADR-019)
   video_uploaded_queue_arn = module.messaging.video_uploaded_arn
-  protect                  = var.protect
   depends_on               = [module.messaging] # a política da fila precisa existir antes da notificação
 }
 

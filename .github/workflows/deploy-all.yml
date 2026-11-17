@@ -1,9 +1,15 @@
 name: deploy-all
 
 # Sobe o ambiente inteiro na ordem do ADR-018: infra → notification → auth → video-api → smoke.
-# fiapx-video-processor e fiapx-web entram aqui quando os deploy.yml deles existirem (Etapas 5 e 6.5).
+# Automático: roda sozinho (a partir da notification) sempre que o apply da infraestrutura termina com sucesso
+# na main (merge no fiapx-infra). Manual: Run workflow, com confirmação, para subir tudo ou retomar uma etapa.
+# O fiapx-video-processor sobe em paralelo, logo depois da infra. O fiapx-web entra na Etapa 6.5.
 # Antes: iniciar a sessão do AWS Academy e atualizar os Secrets AWS_* (ADR-019).
 on:
+  workflow_run:
+    workflows: [terraform]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       confirm:
@@ -13,7 +19,7 @@ on:
         description: Retomar a partir desta etapa
         type: choice
         default: infra
-        options: [infra, notification, auth, video-api, smoke]
+        options: [infra, notification, auth, video-api, processor, smoke]
 
 permissions:
   contents: read
@@ -24,21 +30,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Cada etapa só roda se a anterior deu certo, ou se foi pulada de propósito (a_partir_de).
   confirmar:
+    # Automático só depois de um apply com sucesso disparado por merge (não por PR).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     outputs:
       ordem: ${{ steps.o.outputs.ordem }}
     steps:
-      - if: inputs.confirm != 'deploy-prod'
+      - if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'deploy-prod'
         run: |
           echo "::error::Confirmação inválida: digite deploy-prod."
           exit 1
       - id: o
         env:
-          INICIO: ${{ inputs.a_partir_de }}
+          # Depois do apply automático a infraestrutura já está no ar: começa pela notification.
+          INICIO: ${{ github.event_name == 'workflow_run' && 'notification' || inputs.a_partir_de }}
         run: |
-          etapas=(infra notification auth video-api smoke)
-          for i in "${!etapas[@]}"; do [ "${etapas[$i]}" = "$INICIO" ] && echo "ordem=$i" >> "$GITHUB_OUTPUT"; done
+          etapas=(infra notification auth video-api processor smoke)
+          for i in "${!etapas[@]}"; do
+            if [ "${etapas[$i]}" = "$INICIO" ]; then echo "ordem=$i" >> "$GITHUB_OUTPUT"; fi
+          done
 
   infra:
     needs: confirmar
@@ -49,26 +63,45 @@ jobs:
 
   notification:
     needs: [confirmar, infra]
-    if: always() && needs.confirmar.result == 'success' && needs.infra.result != 'failure' && needs.confirmar.outputs.ordem <= 1
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 1 &&
+      (needs.infra.result == 'success' || (needs.infra.result == 'skipped' && needs.confirmar.outputs.ordem > 0))
     uses: hackathon-fiap-soat/fiapx-notification/.github/workflows/deploy.yml@main
     secrets: inherit
 
   auth:
     needs: [confirmar, notification]
-    if: always() && needs.confirmar.result == 'success' && needs.notification.result != 'failure' && needs.confirmar.outputs.ordem <= 2
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 2 &&
+      (needs.notification.result == 'success' || (needs.notification.result == 'skipped' && needs.confirmar.outputs.ordem > 1))
     uses: hackathon-fiap-soat/fiapx-auth/.github/workflows/deploy.yml@main
     secrets: inherit
 
   video-api:
     needs: [confirmar, auth]
-    if: always() && needs.confirmar.result == 'success' && needs.auth.result != 'failure' && needs.confirmar.outputs.ordem <= 3
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 3 &&
+      (needs.auth.result == 'success' || (needs.auth.result == 'skipped' && needs.confirmar.outputs.ordem > 2))
     uses: hackathon-fiap-soat/fiapx-video-api/.github/workflows/deploy.yml@main
     secrets: inherit
 
+  # Depende só da infraestrutura (ECR, filas, bucket, KEDA); roda em paralelo com notification → auth → video-api.
+  processor:
+    needs: [confirmar, infra]
+    if: >-
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 4 &&
+      (needs.infra.result == 'success' || (needs.infra.result == 'skipped' && needs.confirmar.outputs.ordem > 0))
+    uses: hackathon-fiap-soat/fiapx-video-processor/.github/workflows/deploy.yml@main
+    secrets: inherit
+
   smoke:
-    needs: [confirmar, video-api]
-    if: always() && needs.confirmar.result == 'success' && needs.video-api.result != 'failure'
+    needs: [confirmar, video-api, processor]
+    if: >-
+      always() && needs.confirmar.result == 'success' &&
+      (needs.video-api.result == 'success' || (needs.video-api.result == 'skipped' && needs.confirmar.outputs.ordem > 3)) &&
+      (needs.processor.result == 'success' || (needs.processor.result == 'skipped' && needs.confirmar.outputs.ordem > 4))
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - id: aws
         uses: hackathon-fiap-soat/fiapx-infra/.github/actions/aws-lab@main
@@ -76,13 +109,17 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-      - name: Smoke (health, cadastro, login, lista de vídeos)
+      - name: ffmpeg (vídeo de teste)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg zip >/dev/null
+      - name: Smoke (health, cadastro, login, lista, upload até COMPLETED, download do zip e e-mail)
+        env:
+          SMTP_FROM_DEFINIDO: ${{ secrets.SMTP_FROM != '' }}
         run: |
           set -euo pipefail
           api=$(aws ssm get-parameter --name /fiapx/prod/apigw/url --query Parameter.Value --output text)
           web=$(aws ssm get-parameter --name /fiapx/prod/web/url --query Parameter.Value --output text)
           # O ALB leva alguns segundos para registrar os pods depois do rollout.
-          for i in $(seq 1 30); do curl -fsS "$api/api/health/ready" && break; sleep 10; done
+          for _ in $(seq 1 30); do curl -fsS "$api/api/health/ready" && break; sleep 10; done
           email="smoke+$(date +%s)@example.com"
           curl -fsS -X POST "$api/api/auth/register" -H 'content-type: application/json' \
             -d "{\"name\":\"Smoke\",\"email\":\"$email\",\"password\":\"Smoke-teste-123\"}" >/dev/null
@@ -91,9 +128,48 @@ jobs:
           curl -fsS "$api/api/videos" -H "authorization: Bearer $token" | jq '.meta // .'
           sem=$(curl -s -o /dev/null -w '%{http_code}' "$api/api/videos")
           [ "$sem" = "401" ] || { echo "::error::/api/videos sem token devolveu $sem"; exit 1; }
+
+          # Fluxo completo: vídeo de 3 s → POST pré-assinado → saga → processor → COMPLETED → zip com 3 frames.
+          ffmpeg -loglevel error -f lavfi -i testsrc=duration=3:size=320x240:rate=10 -pix_fmt yuv420p smoke.mp4
+          tamanho=$(stat -c %s smoke.mp4)
+          criado=$(curl -fsS -X POST "$api/api/videos" -H "authorization: Bearer $token" -H 'content-type: application/json' \
+            -d "{\"filename\":\"smoke.mp4\",\"size_bytes\":$tamanho,\"content_type\":\"video/mp4\"}")
+          id=$(jq -r .id <<<"$criado")
+          url=$(jq -r .upload.url <<<"$criado")
+          campos=(); while IFS= read -r c; do campos+=(-F "$c"); done < <(jq -r '.upload.fields | to_entries[] | "\(.key)=\(.value)"' <<<"$criado")
+          curl -fsS -X POST "$url" "${campos[@]}" -F "file=@smoke.mp4;type=video/mp4" >/dev/null
+          status=""
+          for _ in $(seq 1 60); do
+            status=$(curl -fsS "$api/api/videos/$id" -H "authorization: Bearer $token" | jq -r '.status // .data.status')
+            [ "$status" = "COMPLETED" ] || [ "$status" = "FAILED" ] && break
+            sleep 5
+          done
+          [ "$status" = "COMPLETED" ] || { echo "::error::vídeo $id terminou em '$status' (esperado COMPLETED)"; exit 1; }
+          link=$(curl -fsS "$api/api/videos/$id/download" -H "authorization: Bearer $token" | jq -r '.url // .data.url')
+          curl -fsS -o frames.zip "$link"
+          frames=$(unzip -Z1 frames.zip | grep -c '\.png$' || true)
+          [ "$frames" -eq 3 ] || { echo "::error::zip com $frames frames (esperado 3)"; exit 1; }
+
+          # Notificação: o VIDEO_COMPLETED do vídeo acima fica registrado no DynamoDB com PK = e-mail do usuário.
+          tabela=$(aws ssm get-parameter --name /fiapx/prod/dynamodb/notifications/table_name --query Parameter.Value --output text)
+          envio=""
+          for _ in $(seq 1 24); do
+            envio=$(aws dynamodb query --table-name "$tabela" --key-condition-expression 'email = :e' \
+              --expression-attribute-values "{\":e\":{\"S\":\"$email\"}}" --query 'Items[0].status.S' --output text)
+            [ "$envio" = "SENT" ] || [ "$envio" = "FAILED" ] && break
+            sleep 5
+          done
+          if [ "$envio" != "SENT" ]; then
+            if [ "$SMTP_FROM_DEFINIDO" = "true" ]; then
+              echo "::error::e-mail VIDEO_COMPLETED para $email terminou em '$envio' (esperado SENT)"; exit 1
+            fi
+            echo "::warning::e-mail VIDEO_COMPLETED em '$envio': falta o Secret SMTP_FROM (remetente verificado no Brevo)"
+          fi
           {
             echo "### Ambiente prod no ar"
             echo "- API: $api"
             echo "- Site: $web"
-            echo "- Smoke: health, cadastro, login, lista autenticada e 401 sem token ✅"
+            echo "- Smoke: health, cadastro, login, lista autenticada, 401 sem token ✅"
+            echo "- Vídeo de 3 s: upload → COMPLETED → zip com $frames frames ✅"
+            echo "- E-mail VIDEO_COMPLETED registrado no DynamoDB: $envio"
           } >> "$GITHUB_STEP_SUMMARY"
