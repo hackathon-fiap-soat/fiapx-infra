@@ -29,7 +29,7 @@ variable "interface_endpoints" {
 }
 
 variable "protect" {
-  description = "Proteções contra destroy (Aurora e bucket de vídeos). O destroy-all aplica com false antes."
+  description = "Proteção contra destroy do Aurora (deletion_protection). O destroy-all aplica com false antes."
   type        = bool
   default     = true
 }

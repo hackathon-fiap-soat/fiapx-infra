@@ -128,7 +128,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.15.8, terraform_wrapper: false }
       - run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
-      - name: Desligar as proteções (Aurora e bucket de vídeos)
+      - name: Desligar a proteção do Aurora
         run: terraform apply -auto-approve -lock-timeout=10m -var protect=false
       - name: Destroy
         run: terraform destroy -auto-approve -lock-timeout=10m -var protect=false
