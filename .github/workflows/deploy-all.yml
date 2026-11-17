@@ -195,7 +195,7 @@ jobs:
             if [ "$SMTP_FROM_DEFINIDO" = "true" ]; then
               echo "::error::e-mail VIDEO_COMPLETED para $email terminou em '$envio' (esperado SENT)"; exit 1
             fi
-            echo "::warning::e-mail VIDEO_COMPLETED em '$envio': falta o Secret SMTP_FROM (remetente verificado no Brevo)"
+            echo "::warning::e-mail VIDEO_COMPLETED em '$envio': falta o Secret SMTP_FROM (Approved Sender do OCI Email Delivery, ADR-020)"
           fi
           {
             echo "### Ambiente prod no ar"
