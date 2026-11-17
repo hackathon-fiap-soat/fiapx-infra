@@ -1,0 +1,427 @@
+{
+  "name": "FIAP X — Kubernetes (EKS)",
+  "description": "Nós, pods, containers, réplicas (KEDA) e eventos do cluster fiapx-prod, pelo nri-bundle. Gerenciado pelo Terraform (fiapx-infra/observability/newrelic, ADR-021).",
+  "permissions": "PUBLIC_READ_WRITE",
+  "pages": [
+    {
+      "name": "Cluster fiapx-prod",
+      "description": "Namespace fiapx: video-api, saga-consumer, outbox-relay, processor e web.",
+      "widgets": [
+        {
+          "title": "Nós",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 3,
+            "height": 2
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT uniqueCount(nodeName) AS 'Nós' FROM K8sNodeSample WHERE clusterName = 'fiapx-prod' SINCE 5 minutes ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "Pods rodando (fiapx)",
+          "layout": {
+            "column": 4,
+            "row": 1,
+            "width": 3,
+            "height": 2
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT uniqueCount(podName) AS 'Pods Running' FROM K8sPodSample WHERE clusterName = 'fiapx-prod' AND namespaceName = 'fiapx' AND status = 'Running' SINCE 2 minutes ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            }
+          }
+        },
+        {
+          "title": "Pods pendentes",
+          "layout": {
+            "column": 7,
+            "row": 1,
+            "width": 3,
+            "height": 2
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT uniqueCount(podName) AS 'Pending' FROM K8sPodSample WHERE clusterName = 'fiapx-prod' AND status = 'Pending' AND createdKind != 'Job' SINCE 2 minutes ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "thresholds": [
+              {
+                "alertSeverity": "WARNING",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "title": "Restarts de container (1 h)",
+          "layout": {
+            "column": 10,
+            "row": 1,
+            "width": 3,
+            "height": 2
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT sum(restartCountDelta) AS 'Restarts' FROM K8sContainerSample WHERE clusterName = 'fiapx-prod' AND namespaceName = 'fiapx' SINCE 1 hour ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "thresholds": [
+              {
+                "alertSeverity": "WARNING",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "title": "CPU dos nós (%)",
+          "layout": {
+            "column": 1,
+            "row": 3,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT average(allocatableCpuCoresUtilization) FROM K8sNodeSample WHERE clusterName = 'fiapx-prod' FACET nodeName TIMESERIES SINCE 1 hour ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Memória dos nós (%)",
+          "layout": {
+            "column": 7,
+            "row": 3,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT average(allocatableMemoryUtilization) FROM K8sNodeSample WHERE clusterName = 'fiapx-prod' FACET nodeName TIMESERIES SINCE 1 hour ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Réplicas por deployment",
+          "layout": {
+            "column": 1,
+            "row": 6,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT latest(podsAvailable) FROM K8sDeploymentSample WHERE clusterName = 'fiapx-prod' AND namespaceName = 'fiapx' FACET deploymentName TIMESERIES 1 minute SINCE 1 hour ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Worker (KEDA): desejados x disponíveis",
+          "layout": {
+            "column": 7,
+            "row": 6,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT latest(podsDesired) AS 'Desejados', latest(podsAvailable) AS 'Disponíveis' FROM K8sDeploymentSample WHERE clusterName = 'fiapx-prod' AND deploymentName = 'video-processor' TIMESERIES 1 minute SINCE 1 hour ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "CPU por container (cores)",
+          "layout": {
+            "column": 1,
+            "row": 9,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT average(cpuUsedCores) FROM K8sContainerSample WHERE clusterName = 'fiapx-prod' AND namespaceName = 'fiapx' FACET containerName TIMESERIES SINCE 1 hour ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Memória por container (MB)",
+          "layout": {
+            "column": 7,
+            "row": 9,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT average(memoryWorkingSetBytes) / 1e6 FROM K8sContainerSample WHERE clusterName = 'fiapx-prod' AND namespaceName = 'fiapx' FACET containerName TIMESERIES SINCE 1 hour ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Pods da aplicação",
+          "layout": {
+            "column": 1,
+            "row": 12,
+            "width": 12,
+            "height": 4
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT latest(status) AS 'Status', latest(nodeName) AS 'Nó', latest(createdAt) AS 'Criado' FROM K8sPodSample WHERE clusterName = 'fiapx-prod' AND namespaceName = 'fiapx' FACET podName, deploymentName SINCE 5 minutes ago LIMIT 100"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Containers: uso x reserva",
+          "layout": {
+            "column": 1,
+            "row": 16,
+            "width": 12,
+            "height": 4
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT average(cpuUsedCores) AS 'CPU usada', latest(cpuRequestedCores) AS 'CPU reservada', average(memoryWorkingSetBytes)/1e6 AS 'Memória (MB)', latest(memoryLimitBytes)/1e6 AS 'Limite (MB)', sum(restartCountDelta) AS 'Restarts' FROM K8sContainerSample WHERE clusterName = 'fiapx-prod' AND namespaceName = 'fiapx' FACET podName, containerName SINCE 10 minutes ago LIMIT 100"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Eventos do Kubernetes",
+          "layout": {
+            "column": 1,
+            "row": 20,
+            "width": 12,
+            "height": 4
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT timestamp, `event.involvedObject.kind` AS 'Tipo', `event.involvedObject.name` AS 'Objeto', `event.reason` AS 'Motivo', `event.message` AS 'Mensagem' FROM InfrastructureEvent WHERE category = 'kubernetes' AND `event.reason` IS NOT NULL AND clusterName = 'fiapx-prod' SINCE 1 hour ago LIMIT 100"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variables": []
+}

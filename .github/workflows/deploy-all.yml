@@ -4,7 +4,8 @@ run-name: >-
   && format('Deploy-all · automático após o Terraform na main (apply: {0})', github.event.workflow_run.conclusion)
   || format('Deploy-all · manual por {0}, a partir de {1}', github.actor, inputs.a_partir_de) }}
 
-# Sobe o ambiente inteiro na ordem do ADR-018: infra → notification → auth → video-api → smoke.
+# Sobe o ambiente inteiro na ordem do ADR-018: infra → notification → auth → video-api → smoke → New Relic
+# (dashboards, alertas e Synthetics, ADR-021).
 # Automático: roda sozinho (a partir da notification) sempre que o apply da infraestrutura termina com sucesso
 # na main (merge no fiapx-infra). Manual: Run workflow, com confirmação, para subir tudo ou retomar uma etapa.
 # O fiapx-video-processor e o fiapx-web (site no EKS + rota $default) sobem em paralelo, logo depois da infra.
@@ -25,7 +26,7 @@ on:
         description: Retomar a partir desta etapa
         type: choice
         default: infra
-        options: [infra, notification, auth, video-api, processor, web, smoke]
+        options: [infra, notification, auth, video-api, processor, web, smoke, observabilidade]
 
 permissions:
   contents: read
@@ -58,7 +59,7 @@ jobs:
           # Depois do apply automático a infraestrutura já está no ar: começa pela notification.
           INICIO: ${{ github.event_name == 'workflow_run' && 'notification' || inputs.a_partir_de }}
         run: |
-          etapas=(infra notification auth video-api processor web smoke)
+          etapas=(infra notification auth video-api processor web smoke observabilidade)
           for i in "${!etapas[@]}"; do
             if [ "${etapas[$i]}" = "$INICIO" ]; then echo "ordem=$i" >> "$GITHUB_OUTPUT"; fi
           done
@@ -122,7 +123,7 @@ jobs:
     name: 5 · Smoke ponta a ponta
     needs: [confirmar, video-api, processor, web]
     if: >-
-      always() && needs.confirmar.result == 'success' &&
+      always() && needs.confirmar.result == 'success' && needs.confirmar.outputs.ordem <= 6 &&
       (needs.video-api.result == 'success' || (needs.video-api.result == 'skipped' && needs.confirmar.outputs.ordem > 3)) &&
       (needs.processor.result == 'success' || (needs.processor.result == 'skipped' && needs.confirmar.outputs.ordem > 4)) &&
       (needs.web.result == 'success' || (needs.web.result == 'skipped' && needs.confirmar.outputs.ordem > 5))
@@ -206,3 +207,14 @@ jobs:
             echo "- Vídeo de 3 s: upload → COMPLETED → zip com $frames frames ✅"
             echo "- E-mail VIDEO_COMPLETED registrado no DynamoDB: $envio"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  observabilidade:
+    name: 6 · Observabilidade (New Relic)
+    needs: [confirmar, smoke]
+    # Depois do smoke: o monitor Synthetics aponta para a API já no ar (ADR-021).
+    if: >-
+      always() && needs.confirmar.result == 'success' &&
+      (needs.smoke.result == 'success' || (needs.smoke.result == 'skipped' && needs.confirmar.outputs.ordem > 6))
+    uses: ./.github/workflows/newrelic.yml
+    with: { acao: apply }
+    secrets: inherit

@@ -1,0 +1,458 @@
+{
+  "name": "FIAP X — Processamento de vídeos",
+  "description": "Saúde da SAGA de processamento, worker (KEDA), video-api e Lambdas. Filas, DLQs, Aurora e API Gateway ficam no CloudWatch (ADR-019). Gerenciado pelo Terraform (fiapx-infra/observability/newrelic, ADR-021).",
+  "pages": [
+    {
+      "name": "Processamento",
+      "description": "Status dos vídeos, throughput, tempo de processamento, falhas e sagas presas.",
+      "widgets": [
+        {
+          "title": "Como usar",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 4,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "**FIAP X — Processamento de vídeos**\n\nEventos customizados: `VideoSagaTransition` (video-api) e `VideoProcessed` (video-processor). Atributos comuns: `video_id`, `saga_id`, `correlation_id`.\n\nWorker via `K8sDeploymentSample`. Filas, DLQs, Aurora e API Gateway ficam no CloudWatch (ADR-019).\n\nDocumentação: `fiapx-docs/07-observabilidade/observabilidade.md`."
+          }
+        },
+        {
+          "title": "Vídeos por status (hoje)",
+          "layout": {
+            "column": 5,
+            "row": 1,
+            "width": 4,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.pie"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT count(*) AS 'Vídeos' FROM (SELECT latest(video_status) AS status FROM VideoSagaTransition WHERE video_id IS NOT NULL FACET video_id LIMIT MAX) FACET status SINCE today"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Taxa de falha (24 h)",
+          "layout": {
+            "column": 9,
+            "row": 1,
+            "width": 4,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT percentage(count(*), WHERE to_state = 'COMPENSATED') AS 'Falhas (%)' FROM VideoSagaTransition WHERE to_state IN ('COMPLETED', 'COMPENSATED') SINCE 1 day ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "thresholds": [
+              {
+                "alertSeverity": "WARNING",
+                "value": 5
+              },
+              {
+                "alertSeverity": "CRITICAL",
+                "value": 10
+              }
+            ]
+          }
+        },
+        {
+          "title": "Throughput de uploads",
+          "layout": {
+            "column": 1,
+            "row": 4,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT count(*) AS 'Envios solicitados' FROM Transaction WHERE appName = 'fiapx-video-api' AND request.method = 'POST' AND request.uri = '/api/videos' TIMESERIES 5 minutes SINCE 6 hours ago"
+              },
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT count(*) AS 'Uploads recebidos (saga iniciada)' FROM VideoSagaTransition WHERE to_state = 'STARTED' TIMESERIES 5 minutes SINCE 6 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Tempo de processamento p50/p95 (s)",
+          "layout": {
+            "column": 7,
+            "row": 4,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT percentile(duration_ms / 1000, 50, 95) FROM VideoProcessed WHERE reused IS false TIMESERIES 15 minutes SINCE 1 day ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Taxa de falha ao longo do tempo (%)",
+          "layout": {
+            "column": 1,
+            "row": 7,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT percentage(count(*), WHERE to_state = 'COMPENSATED') AS 'Falhas (%)' FROM VideoSagaTransition WHERE to_state IN ('COMPLETED', 'COMPENSATED') TIMESERIES 15 minutes SINCE 1 day ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Motivos de falha (24 h)",
+          "layout": {
+            "column": 7,
+            "row": 7,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.bar"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT count(*) AS 'Falhas' FROM VideoSagaTransition WHERE to_state = 'COMPENSATED' FACET failure_reason SINCE 1 day ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Sagas presas (deadline vencido)",
+          "layout": {
+            "column": 1,
+            "row": 10,
+            "width": 4,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.billboard"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT latest(overdue_count) AS 'Sagas vencidas' FROM SagaTimeoutCheck SINCE 30 minutes ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "thresholds": [
+              {
+                "alertSeverity": "CRITICAL",
+                "value": 1
+              }
+            ]
+          }
+        },
+        {
+          "title": "Sagas vencidas ao longo do tempo",
+          "layout": {
+            "column": 5,
+            "row": 10,
+            "width": 8,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT max(overdue_count) AS 'Vencidas', sum(compensated_count) AS 'Compensadas por timeout' FROM SagaTimeoutCheck TIMESERIES 5 minutes SINCE 1 day ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Worker, API e Lambdas",
+      "description": "Réplicas do worker, video-api e Lambdas. Filas, DLQs, Aurora e API Gateway: CloudWatch (ADR-019).",
+      "widgets": [
+        {
+          "title": "Filas e serviços gerenciados",
+          "layout": {
+            "column": 1,
+            "row": 1,
+            "width": 12,
+            "height": 2
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.markdown"
+          },
+          "rawConfiguration": {
+            "text": "**Filas, DLQs, Aurora e API Gateway ficam no CloudWatch.**\n\nNa AWS Academy Learner Lab não há role para o CloudWatch Metric Streams nem para a integração da conta AWS no New Relic (ADR-019). Profundidade das filas, mensagens nas DLQs, capacidade do Aurora e latência/erros do API Gateway são vistos no console do CloudWatch; os alarmes publicam no tópico SNS do time.\n\nDocumentação: `fiapx-docs/07-observabilidade/observabilidade.md`."
+          }
+        },
+        {
+          "title": "Réplicas do worker (KEDA)",
+          "layout": {
+            "column": 1,
+            "row": 3,
+            "width": 12,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT latest(podsAvailable) AS 'Pods disponíveis', latest(podsDesired) AS 'Pods desejados' FROM K8sDeploymentSample WHERE clusterName LIKE 'fiapx-prod%' AND deploymentName LIKE '%video-processor%' TIMESERIES 1 minute SINCE 6 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "video-api — latência p50/p95 (s)",
+          "layout": {
+            "column": 1,
+            "row": 6,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT percentile(duration, 50, 95) FROM Transaction WHERE appName = 'fiapx-video-api' AND transactionType = 'Web' TIMESERIES 5 minutes SINCE 6 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "video-api — taxa de erro 5xx (%)",
+          "layout": {
+            "column": 7,
+            "row": 6,
+            "width": 6,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.line"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT percentage(count(*), WHERE http.statusCode >= 500) AS '5xx (%)' FROM Transaction WHERE appName = 'fiapx-video-api' AND transactionType = 'Web' TIMESERIES 5 minutes SINCE 6 hours ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "legend": {
+              "enabled": true
+            },
+            "yAxisLeft": {
+              "zero": true
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        },
+        {
+          "title": "Lambdas — invocações e erros",
+          "layout": {
+            "column": 1,
+            "row": 9,
+            "width": 12,
+            "height": 3
+          },
+          "linkedEntityGuids": null,
+          "visualization": {
+            "id": "viz.table"
+          },
+          "rawConfiguration": {
+            "nrqlQueries": [
+              {
+                "accountIds": [
+                  ${account_id}
+                ],
+                "query": "SELECT count(*) AS 'Invocações', filter(count(*), WHERE error IS true) AS 'Erros', average(duration) * 1000 AS 'Duração média (ms)' FROM AwsLambdaInvocation WHERE aws.lambda.arn LIKE '%:function:fiapx-prod-%' FACET name SINCE 1 day ago"
+              }
+            ],
+            "platformOptions": {
+              "ignoreTimeRange": false
+            },
+            "facet": {
+              "showOtherSeries": false
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variables": [],
+  "permissions": "PUBLIC_READ_WRITE"
+}

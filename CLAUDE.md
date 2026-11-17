@@ -53,8 +53,9 @@ Etapas 0 a 7 concluídas: auth, video-api, processor, notification, web e infra 
 `deploy-all` na AWS Academy, com o smoke ponta a ponta verde (site, cadastro, login, upload até `COMPLETED`,
 zip e item de e-mail no DynamoDB); falha de vídeo, e-mail de erro e de senha e 3 uploads simultâneos pelo
 site também testados. E-mail pelo OCI Email Delivery (ADR-020), no lugar do Brevo, que não entregava.
-Em andamento: Etapa 10 (teste de carga k6 em `fiapx-docs/tests/load/`) e Etapa 8 (SonarCloud e checks
-obrigatórios). Ordem do plano: 3 auth → 4 video-api → 5 processor → 6 notification → 6.5 web → 7 infra AWS
+Etapa 8 (SonarCloud e checks obrigatórios) concluída. Em andamento: Etapa 9 (New Relic: dashboards, alertas e
+Synthetics como código em `observability/newrelic`, ADR-021) e Etapa 10 (teste de carga k6 em
+`fiapx-docs/tests/load/`). Ordem do plano: 3 auth → 4 video-api → 5 processor → 6 notification → 6.5 web → 7 infra AWS
 🛑 → 8 CI/CD → 9 observabilidade → 10 carga e entregáveis 🛑. O estado atualizado está no painel.
 
 ## Regras do time

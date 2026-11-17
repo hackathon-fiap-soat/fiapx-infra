@@ -32,6 +32,14 @@ jobs:
           exit 1
 
   # O worker sai antes do video-api, que apaga o namespace fiapx inteiro.
+  observabilidade:
+    name: 1 · Observabilidade (New Relic)
+    needs: confirmar
+    # Primeiro: alertas e monitor somem antes dos serviços, sem alarme falso durante a derrubada (ADR-021).
+    uses: ./.github/workflows/newrelic.yml
+    with: { acao: destroy }
+    secrets: inherit
+
   processor:
     name: 1 · Processor (EKS + KEDA)
     needs: confirmar
@@ -68,9 +76,10 @@ jobs:
 
   infra:
     name: 5 · Infraestrutura (Terraform destroy)
-    needs: [confirmar, processor, web, video-api, auth, notification]
+    needs: [confirmar, observabilidade, processor, web, video-api, auth, notification]
     if: >-
-      always() && needs.confirmar.result == 'success' && needs.processor.result == 'success' && needs.web.result == 'success' &&
+      always() && needs.confirmar.result == 'success' && needs.observabilidade.result == 'success' &&
+      needs.processor.result == 'success' && needs.web.result == 'success' &&
       needs.video-api.result == 'success' && needs.auth.result == 'success' && needs.notification.result == 'success'
     uses: ./.github/workflows/terraform.yml
     with: { acao: destroy }
