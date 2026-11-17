@@ -17,6 +17,17 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Secrets preenchidos?
+      shell: bash
+      env:
+        K: ${{ inputs.aws-access-key-id }}
+        S: ${{ inputs.aws-secret-access-key }}
+        T: ${{ inputs.aws-session-token }}
+      run: |
+        if [ -z "$K" ] || [ -z "$S" ] || [ -z "$T" ]; then
+          echo "::error::Secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e AWS_SESSION_TOKEN vazios. Cadastre-os em Settings → Secrets and variables → Actions → Secrets (não em Variables: os repositórios são públicos) e reexecute."
+          exit 1
+        fi
     - name: Credenciais do lab
       uses: aws-actions/configure-aws-credentials@v4
       with:
