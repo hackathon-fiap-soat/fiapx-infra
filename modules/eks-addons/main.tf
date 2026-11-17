@@ -59,6 +59,9 @@ resource "helm_release" "newrelic" {
     { name = "kube-state-metrics.enabled", value = "true" },
     { name = "kubeEvents.enabled", value = "true" },
     { name = "logging.enabled", value = "true" },
+    # O DaemonSet de logs (fluent-bit) reserva 250m de CPU por nó; com dois t3.large e os serviços, um nó fica
+    # sem espaço e o pod fica Pending. O uso real é bem menor: 50m de reserva, mantendo o limite do chart.
+    { name = "newrelic-logging.resources.requests.cpu", value = "50m" },
   ]
   set_sensitive = [
     { name = "global.licenseKey", value = var.newrelic_license_key },
