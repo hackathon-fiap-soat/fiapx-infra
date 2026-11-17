@@ -51,7 +51,9 @@ Todo `apply`/`destroy` é feito pelo GitHub Actions, sem passo manual na AWS (AD
    **Nunca em Variables:** os repositórios são públicos e Variables aparecem nos logs. As credenciais
    expiram com a sessão (~4 h); um job com credencial vencida falha avisando.
 2. **Secrets opcionais:** `NEW_RELIC_LICENSE_KEY` (instala o `nri-bundle` e liga o APM) e `ALERT_EMAILS`
-   (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs). Variable opcional
+   (JSON, ex.: `["time@exemplo.com"]`, assinaturas de e-mail dos alarmes das DLQs; a variável é `sensitive`,
+   então os endereços não aparecem no `plan` comentado no PR). Depois do apply, cada endereço confirma a
+   assinatura pelo e-mail "AWS Notification - Subscription Confirmation". Variable opcional
    `AURORA_INSTANCE_CLASS` (padrão `db.t3.medium`; o lab nega `db.serverless`).
 3. **Automático:** todo merge no `fiapx-infra` que muda a infraestrutura roda o `apply` e, se der certo, dispara
    sozinho o `deploy-all` a partir da notification. Merges nos serviços fazem o deploy de cada um.
