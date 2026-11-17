@@ -1,0 +1,18 @@
+name: workflows
+
+# actionlint (com shellcheck) em todo PR que mexe em workflows ou actions: erro de expressão, needs
+# faltando ou script quebrado aparece no PR, e não no meio de um deploy.
+on:
+  pull_request:
+    paths: [".github/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.7 -color

@@ -104,7 +104,7 @@ jobs:
           api=$(aws ssm get-parameter --name /fiapx/prod/apigw/url --query Parameter.Value --output text)
           web=$(aws ssm get-parameter --name /fiapx/prod/web/url --query Parameter.Value --output text)
           # O ALB leva alguns segundos para registrar os pods depois do rollout.
-          for i in $(seq 1 30); do curl -fsS "$api/api/health/ready" && break; sleep 10; done
+          for _ in $(seq 1 30); do curl -fsS "$api/api/health/ready" && break; sleep 10; done
           email="smoke+$(date +%s)@example.com"
           curl -fsS -X POST "$api/api/auth/register" -H 'content-type: application/json' \
             -d "{\"name\":\"Smoke\",\"email\":\"$email\",\"password\":\"Smoke-teste-123\"}" >/dev/null
