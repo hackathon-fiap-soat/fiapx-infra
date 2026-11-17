@@ -19,7 +19,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: newrelic-prod
@@ -43,7 +42,7 @@ jobs:
       - name: Baixar o código
         uses: actions/checkout@v4
       - name: Instalar o Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with: { terraform_version: 1.15.8 }
       - name: Conferir a formatação (terraform fmt)
         run: terraform fmt -check -recursive
@@ -55,6 +54,9 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     needs: checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     defaults:
       run: { working-directory: observability/newrelic }
     steps:
@@ -68,7 +70,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
       - name: Instalar o Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with: { terraform_version: 1.15.8, terraform_wrapper: false }
       - name: Inicializar o Terraform (state no S3)
         run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
@@ -118,7 +120,7 @@ jobs:
           fi
       - name: Instalar o Terraform
         if: steps.ambiente.outputs.no_ar == 'true'
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with: { terraform_version: 1.15.8, terraform_wrapper: false }
       - name: Inicializar o Terraform (state no S3)
         if: steps.ambiente.outputs.no_ar == 'true'
@@ -155,7 +157,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
       - name: Instalar o Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with: { terraform_version: 1.15.8, terraform_wrapper: false }
       - name: Inicializar o Terraform (state no S3)
         run: terraform init -backend-config="bucket=${{ steps.aws.outputs.state-bucket }}"
