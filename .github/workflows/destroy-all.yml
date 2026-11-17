@@ -33,7 +33,7 @@ jobs:
     secrets: inherit
 
   auth:
-    needs: video-api
+    needs: [confirmar, video-api]
     if: always() && needs.confirmar.result == 'success'
     uses: hackathon-fiap-soat/fiapx-auth/.github/workflows/destroy.yml@main
     secrets: inherit
