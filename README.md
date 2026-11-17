@@ -39,7 +39,7 @@ modules/edge/              HTTP API (rate limit, logs), VPC Link, ALB interno; t
 modules/jwt/               par RSA do JWT: privada no Secrets Manager, pública no SSM
 modules/ssm-outputs/       /fiapx/<env>/... (catálogo em fiapx-docs/06-deploy/parametros-ssm.md)
 .github/actions/aws-lab/   credenciais do lab (Secrets) + bucket do state; usada por todos os repositórios
-.github/workflows/         terraform.yml, deploy-all.yml, destroy-all.yml, local.yml
+.github/workflows/         terraform.yml, deploy-all.yml, destroy-all.yml, local.yml, sonar.yml
 ```
 
 ## Deploy na AWS (AWS Academy)
@@ -152,6 +152,9 @@ serviço.
 
 O workflow `Ambiente local · docker compose (MySQL, LocalStack, Mailpit)` (`local.yml`) roda em todo PR que altera `local/` ou `sql/`: `shellcheck` nos scripts e
 `docker compose up --wait` seguido de `./scripts/verificar.sh`.
+
+O workflow `Qualidade · análise do SonarCloud` (`sonar.yml`) roda em todo PR e na `main`: análise estática do Terraform,
+dos scripts e dos workflows, com o Quality Gate como check ([projeto no SonarCloud](https://sonarcloud.io/project/overview?id=hackathon-fiap-soat_fiapx-infra)).
 
 ## Links
 
